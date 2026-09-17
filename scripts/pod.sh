@@ -46,12 +46,18 @@ case "${1:-}" in
     echo "WHEN DONE:  bash scripts/pod.sh down"
     ;;
   status)
-    pods_json | python -c '
-import sys,json
-ps=json.load(sys.stdin)
-if not ps: print("no pods running - not being billed")
-for p in ps: print(f"{p[\"id\"]}  {p.get(\"name\")}  {p.get(\"desiredStatus\")}  ${p.get(\"costPerHr\")}/hr  up {int((p.get(\"uptimeSeconds\") or 0)//60)} min  https://{p[\"id\"]}-8000.proxy.runpod.net")'
-    "$RP" user -o json 2>/dev/null | python -c 'import sys,json; d=json.load(sys.stdin); print(f"balance ${d[\"clientBalance\"]:.2f}   spend/hr ${d[\"currentSpendPerHr\"]}")'
+    PODS="$(pods_json)" USER_JSON="$("$RP" user -o json 2>/dev/null)" python - <<'PY2'
+import os, json
+ps = json.loads(os.environ["PODS"] or "[]")
+if not ps:
+    print("no pods running - not being billed")
+for p in ps:
+    up = int((p.get("uptimeSeconds") or 0) // 60)
+    print(f'{p["id"]}  {p.get("name")}  {p.get("desiredStatus")}  ${p.get("costPerHr")}/hr  up {up} min  https://{p["id"]}-8000.proxy.runpod.net')
+u = json.loads(os.environ["USER_JSON"] or "{}")
+if u:
+    print(f'balance ${u.get("clientBalance", 0):.2f}   spend/hr ${u.get("currentSpendPerHr", 0)}')
+PY2
     ;;
   down)
     IDS="$(pods_json | python -c 'import sys,json; print(" ".join(p["id"] for p in json.load(sys.stdin) if p.get("name","").startswith("imgedit")))')"
