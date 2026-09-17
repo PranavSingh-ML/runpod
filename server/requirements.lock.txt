@@ -1,17 +1,62 @@
-# PROVISIONAL LOCK - replace this whole file with phase0/requirements.lock.txt after Phase 0
-# (pip freeze taken inside the v0 image on the GPU). Until then the Docker build installs
-# exactly these top-level pins (verified on PyPI 2026-09-17) and lets pip resolve the rest.
-# torch/torchvision come from the Dockerfile torch layer and must not be listed here.
-diffusers==0.40.0
-transformers==5.17.0
+# Frozen by phase0_probe.py on 2026-09-17 19:38:14 UTC
+# inside imgedit image (python 3.12.3, torch 2.9.1+cu129 cuda 12.9), GPU NVIDIA RTX A6000 cap (8, 6)
+# torch/torchvision/triton/nvidia-* come from the Dockerfile torch layer and are intentionally omitted.
 accelerate==1.15.0
-safetensors>=0.5
-peft>=0.17
-sentencepiece
-protobuf
-huggingface_hub[hf_xet]
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
 bitsandbytes==0.50.2
+certifi==2026.7.22
+charset-normalizer==3.5.1
+click==8.5.0
+diffusers==0.40.0
 fastapi==0.141.1
-uvicorn[standard]==0.53.0
-python-multipart
-pillow
+filelock==3.32.3
+fsspec==2026.7.0
+h11==0.16.0
+hf-xet==1.6.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+huggingface_hub==1.32.0
+idna==3.20
+importlib_metadata==9.0.1
+Jinja2==3.1.6
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.5.2
+packaging==26.3
+peft==0.21.0
+pillow==12.3.0
+protobuf==7.36.1
+psutil==7.2.2
+pydantic==2.13.5
+pydantic_core==2.46.5
+Pygments==2.21.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+PyYAML==6.0.3
+regex==2026.9.10
+requests==2.34.2
+rich==15.0.0
+safetensors==0.8.0
+sentencepiece==0.2.2
+setuptools==78.1.0
+shellingham==1.5.4
+starlette==1.6.0
+sympy==1.14.0
+tokenizers==0.23.2
+tqdm==4.70.1
+transformers==5.17.0
+typer==0.27.2
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+urllib3==2.8.0
+uvicorn==0.53.0
+uvloop==0.22.1
+watchfiles==1.2.0
+websockets==17.1
+zipp==4.1.0

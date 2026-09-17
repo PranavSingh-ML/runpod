@@ -26,9 +26,10 @@ runs on a GPU; fill in from `phase0_report.json` / `smoke_test.sh` output.
 | Lightning inference settings | steps 8, `true_cfg_scale` 1.0, negative `" "`, scheduler exponential shift with `base_shift = max_shift = ln 3`, `shift_terminal = None` | ModelTC/Qwen-Image-Lightning `generate_with_diffusers.py` |
 | Pipeline call | `QwenImageEditPlusPipeline(image=[...], prompt, negative_prompt, true_cfg_scale, guidance_scale=1.0, num_inference_steps, width, height, generator, callback_on_step_end)`; output dims must be multiples of 16; default target area 1024² | diffusers v0.40.0 source |
 
-Lock file status: `server/requirements.lock.txt` is **PROVISIONAL** (top-level pins only).
-Phase 0 runs `phase0_probe.py` *inside* the `v0` image on the GPU and writes the real freeze
-(`phase0/requirements.lock.txt`) → copy over, tag `v1`. → TODO(pod)
+Lock file status: **FROZEN 2026-09-17 19:38 UTC** — `server/requirements.lock.txt` is the `pip freeze`
+taken inside the `v0` image on the Phase 0 pod (59 pinned packages; torch layer excluded). `v1` is
+built from it. Notable resolved transitive pins: peft 0.21.0, safetensors 0.8.0, huggingface_hub 1.32.0,
+tokenizers 0.23.2, numpy 2.5.2, pydantic 2.13.5.
 
 ## Hardware / pricing (VERIFIED 2026-09-17, runpod.io/pricing — these move)
 
@@ -62,32 +63,46 @@ Decided at boot by `torch.cuda.get_device_capability()` (`server/pipeline.py:res
 - **bf16 unquantised needs ~60 GB** → not possible on any 48 GB card. (The spec's table implies
   it might fit; it does not: 57.7 GB of weights.)
 
-## Measurements — TODO(pod)
+## Measurements (MEASURED — Phase 0, 2026-09-17, pod 1a5stk0e531qn3)
 
-Fill from `phase0_report.json` (Phase 0) and `scripts/smoke_test.sh` (Phase 1).
+A40 was out of stock in every datacenter (Secure and Community) at the time; ran on the
+**RTX A6000** instead — same Ampere sm_86 / 48 GB class, so the quant path and numbers transfer.
 
 | Metric | Value |
 |---|---|
-| GPU / capability actually seen | |
-| torch / CUDA / cudnn on pod | |
-| quant path chosen | |
-| cold load incl. 57.7 GB download (s) | |
-| VRAM idle after load (GB) | |
-| VRAM peak during an edit (GB) | |
-| edit #1 incl. warmup, 8 steps, ~1024px (s) | |
-| edit #2 steady state, 8 steps, ~1024px (s) | |
-| smoke_test cold-boot wall time (s) | |
-| smoke_test `server_elapsed` (s) | |
-| `v0` image digest (provisional lock) | |
-| `v1` image digest (frozen lock) | |
+| GPU / capability actually seen | NVIDIA RTX A6000, 49140 MiB, driver 595.91.07, **capability (8, 6)** |
+| torch / CUDA / cudnn on pod | 2.9.1+cu129 / 12.9 / 91002; Python 3.12.3 |
+| quant path chosen | `fp8_layerwise` (transformer + text encoder fp8 storage, bf16 compute); LoRA fused before cast |
+| image pull (4.94 GB from GHCR) | ~2.5 min (pod created 19:26:59 → container start 19:29:37 UTC) |
+| cold load incl. 57.7 GB download (s) | **544 s** (download ≈ 7.5 min unauthenticated HF; load + LoRA fuse + fp8 cast ≈ 1.5 min) |
+| VRAM idle after load (GB) | **30.14** |
+| VRAM peak during an edit (GB) | **36.94** (1024×768) |
+| edit #1 incl. warmup, 8 steps, 1024×768 (s) | 17.49 |
+| edit #2 steady state, 8 steps, 1024×768 (s) | **16.84** → ~2.1 s/step; ≈ $0.0025 per edit at $0.53/hr |
+| Phase 0 wall time, create → delete | 21 min |
+| smoke_test cold-boot wall time (s) | TODO(pod) Phase 1 |
+| smoke_test `server_elapsed` (s) | TODO(pod) Phase 1 |
+| `v0` image digest (provisional lock) | `sha256:3c9fd4700c82a7505f782ef93f068a96154613fc2ede18492ef014a24340f490` (4.94 GB, 12 layers) |
+| `v1` image digest (frozen lock) | TODO |
+
+Observations from `phase0_out.png` (prompt "make the sky a dramatic sunset, keep everything else
+unchanged" on a synthetic blue-sky/green-ground/yellow-disc test image): sky fully replaced with a
+photoreal sunset, ground preserved, the disc was interpreted as the sun. Small rendered text in the
+corner was garbled — expect to need explicit "keep the text unchanged" instructions for text-bearing images.
+
+Gotchas found: (1) sshd sessions don't inherit Docker `ENV` — fixed in `entrypoint.sh` by writing
+`/etc/environment`. (2) bitsandbytes prints "No prebuilt binary for CUDA 12.9, loading CUDA 12.8
+instead" — harmless, nf4 path untested. (3) HF download is unauthenticated; setting `HF_TOKEN` on the
+pod would raise rate limits / speed. (4) A cold boot is ~2.5 min image pull + ~9 min weights+load
+≈ **12 min ≈ $0.10** before the first edit — bigger than the spec's $0.06 estimate.
 
 ## Spend log
 
 | Date | What | GPU | Hours | $ |
 |---|---|---|---|---|
-| | Phase 0 | | | |
+| 2026-09-17 | Phase 0 (probe, freeze) | RTX A6000 Secure US-TX-1 | 0.35 | $0.18 (balance 13.29 → 13.11) |
 | | Phase 1 smoke test | | | |
-| | | | | **running total: $0.00 / $13** |
+| | | | | **running total: $0.18 / $13** |
 
 ## Laptop-side verification (done 2026-09-17, no GPU)
 
@@ -109,6 +124,7 @@ Fill from `phase0_report.json` (Phase 0) and `scripts/smoke_test.sh` (Phase 1).
 5. Output size default is match-input-aspect with long side clamped to `[MIN_SIDE=512, MAX_SIDE=1024]`
    (a floor was added because the model is trained at ~1 MP).
 6. Rewriter uses `claude-haiku-4-5` (the spec asked for a cheap text model); `REWRITE_MODEL` env overrides.
-7. Phase 0 runs inside the `v0` image (built from top-level pins) instead of on a stock
+7. Phase 0 ran on an RTX A6000 (A40 had zero stock everywhere at the time), $0.53/hr Secure.
+8. Phase 0 runs inside the `v0` image (built from top-level pins) instead of on a stock
    `runpod/pytorch` template. Same purpose — one throwaway GPU session produces the frozen
    lock — but the freeze now comes from the exact image that ships, and no local Docker is needed.

@@ -15,3 +15,4 @@ tools/
 apikey.txt
 *.key
 *.token
+phase0/
