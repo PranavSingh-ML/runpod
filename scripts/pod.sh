@@ -12,7 +12,9 @@ cd "$(dirname "$0")/.."
 RP="${RUNPODCTL:-./tools/runpodctl.exe}"
 [ -x "$RP" ] || RP="./tools/runpodctl"
 [ -x "$RP" ] || { echo "runpodctl not found in tools/ - see README (download it, then: tools\\runpodctl.exe doctor)"; exit 1; }
-command -v node >/dev/null || { echo "node not found on PATH - install Node.js and open a new terminal"; exit 1; }
+command -v node >/dev/null || { echo "node not found on PATH - install Node.js 24 and open a new terminal"; exit 1; }
+NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
+[ "$NODE_MAJOR" -ge 22 ] || { echo "Node $(node -v) is too old - the app needs Node >= 22.13 (24 recommended). Install it, open a new terminal, re-run npm install in web/."; exit 1; }
 IMAGE="${IMAGE:-ghcr.io/pranavsingh-ml/imgedit:v1}"
 DISK="${DISK:-100}"
 ENVF="web/.env.local"
@@ -28,7 +30,7 @@ case "${1:-}" in
   up)
     TOKEN="$(token)"
     if [ -z "$TOKEN" ]; then
-      TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64url"))')"
+      TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
       printf 'POD_URL=\nAPI_TOKEN=%s\nPOD_RATE_USD_HR=0.49\nANTHROPIC_API_KEY=\nREWRITE_ENABLED=0\n' "$TOKEN" > "$ENVF"
       echo "generated API_TOKEN -> $ENVF"
     fi
@@ -44,7 +46,7 @@ case "${1:-}" in
     }
     try "NVIDIA A40" SECURE || try "NVIDIA RTX A6000" SECURE || try "NVIDIA RTX A6000" COMMUNITY || { echo "no 48GB Ampere card available right now; try again in a few minutes"; exit 1; }
     ID="$(js 'console.log(JSON.parse(input).id)' < .pod_create.json)"
-    RATE="$(js 'console.log(JSON.parse(input).costPerHr ?? "")' < .pod_create.json)"
+    RATE="$(js 'console.log(JSON.parse(input).costPerHr || "")' < .pod_create.json)"
     rm -f .pod_create.json
     URL="https://${ID}-8000.proxy.runpod.net"
     sed -i "s|^POD_URL=.*|POD_URL=${URL}|; s|^POD_RATE_USD_HR=.*|POD_RATE_USD_HR=${RATE:-0.49}|" "$ENVF"
