@@ -121,8 +121,12 @@ pod would raise rate limits / speed. (4) A cold boot is ~2.5 min image pull + ~9
 3. A40 Secure is $0.49/hr, not $0.44. Community A40 is $0.35/hr if latency tolerance allows.
 4. `guidance` on the API maps to `true_cfg_scale` (the model has no guidance embedding);
    default 1.0 with the Lightning LoRA, which also halves compute by skipping the negative pass.
-5. Output size default is match-input-aspect with long side clamped to `[MIN_SIDE=512, MAX_SIDE=1024]`
-   (a floor was added because the model is trained at ~1 MP).
+5. Output size default is match-input-aspect with long side clamped to `[MIN_SIDE=512, MAX_SIDE=1024]`.
+   **v2 fix:** generation always happens at the pipeline's native ~1 MP size for the aspect ratio;
+   the requested size is a post-resize. Passing a non-native `width/height` (e.g. 384×512 for a
+   387×516 upload) mismatched the reference-image latents and produced zoomed/cropped results (found
+   by the user on the first real session, 2026-09-18). Per-edit time is therefore ~constant (~14–17 s)
+   regardless of the requested output size.
 6. Rewriter uses `claude-haiku-4-5` (the spec asked for a cheap text model); `REWRITE_MODEL` env overrides.
 7. Phase 0 ran on an RTX A6000 (A40 had zero stock everywhere at the time), $0.53/hr Secure.
 8. Phase 0 runs inside the `v0` image (built from top-level pins) instead of on a stock

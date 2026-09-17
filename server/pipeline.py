@@ -249,10 +249,15 @@ class Engine:
         imgs = [im.convert("RGB") for im in images]
         with torch.inference_mode():
             if config.PIPELINE == "qwen_edit_plus":
+                # Always let the pipeline pick its native ~1 MP size for the source's aspect
+                # ratio (width/height=None). The reference image is conditioned at that same
+                # size internally; generating at any other size (e.g. "match a 387x516 input")
+                # mismatches the two latent grids and the model reframes -> zoomed/cropped
+                # output. The requested size is applied afterwards as a plain resize.
                 out = self.pipe(
                     image=imgs, prompt=prompt, negative_prompt=negative or " ",
                     true_cfg_scale=float(guidance), guidance_scale=1.0,
-                    num_inference_steps=int(steps), width=width, height=height,
+                    num_inference_steps=int(steps), width=None, height=None,
                     generator=gen, callback_on_step_end=_cb,
                 )
             else:  # flux_kontext: single image, guidance is the embedded guidance
@@ -261,7 +266,10 @@ class Engine:
                     num_inference_steps=int(steps), width=width, height=height,
                     generator=gen, callback_on_step_end=_cb,
                 )
-        return out.images[0]
+        img = out.images[0]
+        if (img.width, img.height) != (width, height):
+            img = img.resize((width, height), Image.LANCZOS)
+        return img
 
 
 def make_engine():

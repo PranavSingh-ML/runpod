@@ -54,8 +54,11 @@ DEFAULT_STEPS: int = _env("DEFAULT_STEPS", 8 if LORA_ENABLED else 40)
 # (which also skips the negative pass => 2x faster). Base model wants ~4.0.
 DEFAULT_GUIDANCE: float = _env("DEFAULT_GUIDANCE", 1.0 if LORA_ENABLED else 4.0)
 DEFAULT_NEGATIVE: str = _env("DEFAULT_NEGATIVE", " ")
-MAX_SIDE: int = _env("MAX_SIDE", 1024)   # long side of output is clamped to this
-MIN_SIDE: int = _env("MIN_SIDE", 512)    # and never below this (model is trained ~1MP)
+# Output sizing. The model ALWAYS generates at its native ~1 MP size for the source's aspect
+# ratio (anything else mismatches the reference latents and produces zoomed/cropped output);
+# these only control the final resize of that result.
+MAX_SIDE: int = _env("MAX_SIDE", 1024)   # default output: input aspect, long side clamped to [MIN_SIDE, MAX_SIDE]
+MIN_SIDE: int = _env("MIN_SIDE", 512)
 MAX_STEPS: int = _env("MAX_STEPS", 50)
 SIZE_MULTIPLE: int = 16                   # QwenImage VAE: 8 * patch 2
 
