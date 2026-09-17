@@ -4,6 +4,9 @@
 #  - PHASE0=1 -> sshd only; used once to run phase0_probe.py inside this exact image.
 #  - otherwise -> the API server, bound to 0.0.0.0 (127.0.0.1 is invisible to the RunPod proxy).
 set -u
+# sshd sessions do not inherit Docker ENV; export the container env for PAM/login shells.
+env | grep -E '^(PATH|HF_|PYTORCH|API_TOKEN|MODEL|LORA|QUANT|PORT|TOKENIZERS|PHASE0|DEFAULT_|MAX_SIDE|MIN_SIDE|PIPELINE|LOG_PATH)' > /etc/environment
+{ echo 'set -a; . /etc/environment; set +a'; } > /etc/profile.d/10-container-env.sh
 if [ -n "${PUBLIC_KEY:-}" ]; then
   mkdir -p /root/.ssh && chmod 700 /root/.ssh
   printf '%s\n' "$PUBLIC_KEY" >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys

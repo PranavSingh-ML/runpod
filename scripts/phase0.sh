@@ -19,10 +19,11 @@ echo "ssh root@$HOST -p $PORT"
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p "$PORT" "root@$HOST")
 
 echo "== environment =="
-"${SSH[@]}" 'nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader; df -h / | tail -1; python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_capability())"'
+ENV='set -a; . <(tr "\0" "\n" < /proc/1/environ | grep -E "^(PATH|HF_|PYTORCH|API_TOKEN|MODEL|LORA|QUANT|TOKENIZERS)="); set +a;'
+"${SSH[@]}" "$ENV"' nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader; df -h / | tail -1; python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_capability())"'
 
 echo "== probe (downloads 58GB of weights on first run; 5-15 min) =="
-"${SSH[@]}" 'cd /app && python phase0_probe.py' "${@:2}"
+"${SSH[@]}" "$ENV"' cd /app && python phase0_probe.py' "${@:2}"
 
 echo "== copy results back =="
 mkdir -p phase0
