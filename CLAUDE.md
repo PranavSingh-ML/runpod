@@ -4,6 +4,11 @@ Local chat-style image editor. Laptop runs `web/` (Vite+React+Express, SQLite, i
 a disposable RunPod GPU pod runs `server/` from a pinned Docker image. Design: `spec.md`.
 Measured numbers, pins, spend log: `NOTES.md`. Human runbook: `README.md`.
 
+## Windows note
+
+Type `bash` on Windows may be **WSL** (an Ubuntu VM with its own ancient Node) rather than Git Bash.
+Always use `.\pod.cmd <up|wait|status|down>` on Windows — it runs `scripts/pod.sh` under Git Bash.
+
 ## The one rule
 
 **A running pod costs money every minute ($0.49–0.53/hr). Never end a session with a pod up
@@ -14,10 +19,10 @@ Check with `bash scripts/pod.sh status` whenever unsure.
 ## Daily use (nothing to build)
 
 ```
-bash scripts/pod.sh up        # creates the pod, writes POD_URL into web/.env.local  (~6-12 min cold boot)
-bash scripts/pod.sh wait      # blocks until the model is loaded
+.\pod.cmd up               # (Windows) creates the pod, writes POD_URL into web/.env.local  (~6-12 min cold boot)
+.\pod.cmd wait             # blocks until the model is loaded
 cd web && npm run dev         # http://127.0.0.1:5173  — user edits pictures here
-bash scripts/pod.sh down      # WHEN DONE
+.\pod.cmd down             # WHEN DONE   (Linux/mac: bash scripts/pod.sh <cmd>)
 ```
 
 Results: `data/images/*.png`, history tree: `data/history.sqlite` (gitignored, the user's data —
