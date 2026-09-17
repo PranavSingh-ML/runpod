@@ -56,7 +56,10 @@ Runs *inside* the `v0` image on a real GPU, so the frozen lock is exactly what s
 git tag v0 && git push origin main v0
 
 # 2. start a Phase-0 pod (sshd only, no server)                   -> meter starts
-./tools/runpodctl.exe pod create --name imgedit-phase0 \n  --image ghcr.io/<owner>/imgedit:v0 --gpu-id "NVIDIA A40" \n  --container-disk-in-gb 100 --ports "8000/http,22/tcp" \n  --env '{"PHASE0":"1","API_TOKEN":"phase0","HF_HOME":"/workspace/hf"}' --wait
+./tools/runpodctl.exe pod create --name imgedit-phase0 \
+  --image ghcr.io/<owner>/imgedit:v0 --gpu-id "NVIDIA A40" \
+  --container-disk-in-gb 100 --ports "8000/http,22/tcp" \
+  --env '{"PHASE0":"1","API_TOKEN":"phase0","HF_HOME":"/workspace/hf"}' --wait
 
 # 3. drive it from the laptop: env check, model load, two edits, pip freeze, copy back
 scripts/phase0.sh <POD_ID>
@@ -73,7 +76,10 @@ Paste `phase0/phase0_report.json` into `NOTES.md`, commit.
 
 ```
 git tag v1 && git push origin main v1        # image from the frozen lock
-./tools/runpodctl.exe pod create --name imgedit \n  --image ghcr.io/<owner>/imgedit:v1 --gpu-id "NVIDIA A40" \n  --container-disk-in-gb 100 --ports "8000/http,22/tcp" \n  --env '{"API_TOKEN":"<long random string>","HF_HOME":"/workspace/hf"}'
+./tools/runpodctl.exe pod create --name imgedit \
+  --image ghcr.io/<owner>/imgedit:v1 --gpu-id "NVIDIA A40" \
+  --container-disk-in-gb 100 --ports "8000/http,22/tcp" \
+  --env '{"API_TOKEN":"<long random string>","HF_HOME":"/workspace/hf"}'
 ```
 
 Then from the laptop, with a cold pod and nobody SSHing in:
