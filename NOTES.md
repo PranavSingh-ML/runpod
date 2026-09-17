@@ -80,10 +80,10 @@ A40 was out of stock in every datacenter (Secure and Community) at the time; ran
 | edit #1 incl. warmup, 8 steps, 1024×768 (s) | 17.49 |
 | edit #2 steady state, 8 steps, 1024×768 (s) | **16.84** → ~2.1 s/step; ≈ $0.0025 per edit at $0.53/hr |
 | Phase 0 wall time, create → delete | 21 min |
-| smoke_test cold-boot wall time (s) | TODO(pod) Phase 1 |
-| smoke_test `server_elapsed` (s) | TODO(pod) Phase 1 |
+| smoke_test cold-boot, pod create → `model_loaded: true` (s) | **~365 s** (A40 Secure, pod m7xxar2cqdaai9; image pull + 58 GB download + load + warmup) — this datacenter downloaded much faster than the Phase 0 one |
+| smoke_test `server_elapsed` (s) | **13.66 s** for 768×512, 8 steps, via the public proxy; 16.5 s wall incl. upload/poll/download (Phase 1 PASS, A40) |
 | `v0` image digest (provisional lock) | `sha256:3c9fd4700c82a7505f782ef93f068a96154613fc2ede18492ef014a24340f490` (4.94 GB, 12 layers) |
-| `v1` image digest (frozen lock) | TODO |
+| `v1` image digest (frozen lock) | `sha256:faf855ecc0b92e7cd4aed22527934bdcd883713ff5c548fdd502c7a528a96c48` |
 
 Observations from `phase0_out.png` (prompt "make the sky a dramatic sunset, keep everything else
 unchanged" on a synthetic blue-sky/green-ground/yellow-disc test image): sky fully replaced with a
@@ -101,8 +101,8 @@ pod would raise rate limits / speed. (4) A cold boot is ~2.5 min image pull + ~9
 | Date | What | GPU | Hours | $ |
 |---|---|---|---|---|
 | 2026-09-17 | Phase 0 (probe, freeze) | RTX A6000 Secure US-TX-1 | 0.35 | $0.18 (balance 13.29 → 13.11) |
-| | Phase 1 smoke test | | | |
-| | | | | **running total: $0.18 / $13** |
+| 2026-09-17 | Phase 1 smoke test + first session | A40 Secure | (running) | ~$0.05 to PASS |
+| | | | | **running total: ~$0.23 / $13 + current session** |
 
 ## Laptop-side verification (done 2026-09-17, no GPU)
 
