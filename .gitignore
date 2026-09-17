@@ -11,3 +11,4 @@ smoke_out.png
 __pycache__/
 *.pyc
 .venv/
+tools/

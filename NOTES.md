@@ -8,9 +8,10 @@ runs on a GPU; fill in from `phase0_report.json` / `smoke_test.sh` output.
 
 | Item | Value | Source |
 |---|---|---|
-| Base image tag | `runpod/pytorch:1.3.1-cu1290-torch291-ubuntu2404` | Docker Hub tag list (stable, non-rc) |
-| Base image digest | `sha256:674cc1090eb6d753af9c99aabfb733c998463dcf720176ac9787972caece4c8f` | Docker Hub API, pushed 2026-09-15 |
-| Base image contents | Ubuntu 24.04, Python 3.10 default, CUDA 12.9.0, torch 2.9.1+cu129 | runpod/containers Dockerfiles |
+| Base image | `nvidia/cuda:12.9.0-base-ubuntu24.04@sha256:48e21b10467354655f5073c05eebdeaac9818c6b40d70f334f7ad2df000463d8` (109 MB) | Docker Hub API |
+| Why not runpod/pytorch | 16.3 GB compressed — too big for a free GitHub runner and slow for RunPod to pull each cold boot. Our image is ~5 GB. | Docker Hub API |
+| Python / torch | Ubuntu 24.04 python3 = 3.12; `torch==2.9.1+cu129`, `torchvision==0.24.1+cu129` from download.pytorch.org/whl/cu129 (cp312 wheels exist) | PyTorch index |
+| Build | GitHub Actions → `ghcr.io/<owner>/imgedit:<tag>` (no local Docker: this laptop has VT-x disabled in firmware) | `.github/workflows/build-image.yml` |
 | diffusers | **`0.40.0` from PyPI (released 2026-08-20)** — no git SHA needed | PyPI |
 | diffusers tag commit | `d035dcd7cc7c88e0a154609b62887d50bba9fdc2` (v0.40.0) | `git ls-remote` |
 | Why no SHA pin | `QwenImageEditPlusPipeline` + `zero_cond_t` (needed by 2511, `_diffusers_version: 0.36.0.dev0` in the model config) are in the 0.40.0 release. A released wheel beats a git SHA for reproducibility. | pipeline file present at tag v0.40.0 |
@@ -26,7 +27,8 @@ runs on a GPU; fill in from `phase0_report.json` / `smoke_test.sh` output.
 | Pipeline call | `QwenImageEditPlusPipeline(image=[...], prompt, negative_prompt, true_cfg_scale, guidance_scale=1.0, num_inference_steps, width, height, generator, callback_on_step_end)`; output dims must be multiples of 16; default target area 1024² | diffusers v0.40.0 source |
 
 Lock file status: `server/requirements.lock.txt` is **PROVISIONAL** (top-level pins only).
-Replace it with the `pip freeze` output from Phase 0. → TODO(pod)
+Phase 0 runs `phase0_probe.py` *inside* the `v0` image on the GPU and writes the real freeze
+(`phase0/requirements.lock.txt`) → copy over, tag `v1`. → TODO(pod)
 
 ## Hardware / pricing (VERIFIED 2026-09-17, runpod.io/pricing — these move)
 
@@ -76,7 +78,8 @@ Fill from `phase0_report.json` (Phase 0) and `scripts/smoke_test.sh` (Phase 1).
 | edit #2 steady state, 8 steps, ~1024px (s) | |
 | smoke_test cold-boot wall time (s) | |
 | smoke_test `server_elapsed` (s) | |
-| image tag + digest pushed | |
+| `v0` image digest (provisional lock) | |
+| `v1` image digest (frozen lock) | |
 
 ## Spend log
 
@@ -106,3 +109,6 @@ Fill from `phase0_report.json` (Phase 0) and `scripts/smoke_test.sh` (Phase 1).
 5. Output size default is match-input-aspect with long side clamped to `[MIN_SIDE=512, MAX_SIDE=1024]`
    (a floor was added because the model is trained at ~1 MP).
 6. Rewriter uses `claude-haiku-4-5` (the spec asked for a cheap text model); `REWRITE_MODEL` env overrides.
+7. Phase 0 runs inside the `v0` image (built from top-level pins) instead of on a stock
+   `runpod/pytorch` template. Same purpose — one throwaway GPU session produces the frozen
+   lock — but the freeze now comes from the exact image that ships, and no local Docker is needed.

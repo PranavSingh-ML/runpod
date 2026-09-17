@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Pod entrypoint. Keeps RunPod's own /start.sh (sshd, optional jupyter) alive in the
-# background for emergencies, then runs the API server as the main process.
+# Pod entrypoint.
+#  - RunPod injects PUBLIC_KEY (your account's SSH keys) -> start sshd so `runpodctl ssh info` works.
+#  - PHASE0=1 -> sshd only; used once to run phase0_probe.py inside this exact image.
+#  - otherwise -> the API server, bound to 0.0.0.0 (127.0.0.1 is invisible to the RunPod proxy).
 set -u
-if [ -x /start.sh ]; then
-  /start.sh >/tmp/runpod-start.log 2>&1 &
+if [ -n "${PUBLIC_KEY:-}" ]; then
+  mkdir -p /root/.ssh && chmod 700 /root/.ssh
+  printf '%s\n' "$PUBLIC_KEY" >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
+  ssh-keygen -A >/dev/null 2>&1
+  /usr/sbin/sshd -p 22 && echo "[entrypoint] sshd up on :22"
 fi
 cd /app
 echo "[entrypoint] GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo unknown)"
 echo "[entrypoint] HF_HOME=${HF_HOME:-unset}  API_TOKEN set: $([ -n "${API_TOKEN:-}" ] && echo yes || echo NO)"
-# Bind 0.0.0.0 or the RunPod proxy sees nothing.
+if [ "${PHASE0:-0}" = "1" ]; then
+  echo "[entrypoint] PHASE0=1: not starting the server. ssh in and run: cd /app && python phase0_probe.py"
+  exec sleep infinity
+fi
 exec python -m uvicorn app:app --host 0.0.0.0 --port "${PORT:-8000}" --log-level info

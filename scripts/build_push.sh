@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# LOCAL-DOCKER ALTERNATIVE. The default build path is GitHub Actions (.github/workflows/build-image.yml):
+#   git tag v1 && git push origin v1     -> ghcr.io/<owner>/imgedit:v1
+# Use this script only if you have a working Docker on the laptop.
 # Build the pod image from the frozen lock file and push it with an immutable tag.
 #   REGISTRY=docker.io/<you> scripts/build_push.sh v1
 # Needs Docker with buildx (linux/amd64). No GPU needed to build.

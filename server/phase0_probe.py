@@ -1,7 +1,7 @@
-"""Phase 0: run ONCE on a stock runpod/pytorch pod, after `pip install -r requirements.in`.
+"""Phase 0: run ONCE inside a pod started from imgedit:v0 with PHASE0=1 (see scripts/phase0.sh).
 
-Uses the exact same Engine as production (pipeline.py), so what passes here is what
-ships. Produces, in the current directory:
+Runs in the exact image that ships, with the exact same Engine as production (pipeline.py),
+so the pip freeze it writes is the truth. Produces, in the current directory:
   phase0_report.json     - versions, capability, quant path, VRAM, timings  -> copy into NOTES.md
   phase0_out.png         - the edited image (acceptance criterion)
   requirements.lock.txt  - pip freeze, minus the packages the base image owns -> replace server/requirements.lock.txt
@@ -104,8 +104,8 @@ def main() -> int:
     kept = [ln for ln in freeze if ln and not ln.startswith(BASE_IMAGE_OWNED) and " @ file://" not in ln]
     header = [
         f"# Frozen by phase0_probe.py on {report['date']}",
-        f"# base image: runpod/pytorch (torch {report['torch']} cuda {report['cuda']}), GPU {report['gpu']} cap {cap}",
-        "# torch/torchvision/torchaudio/triton/nvidia-* are owned by the base image and intentionally omitted.",
+        f"# inside imgedit image (python {report['python']}, torch {report['torch']} cuda {report['cuda']}), GPU {report['gpu']} cap {cap}",
+        "# torch/torchvision/triton/nvidia-* come from the Dockerfile torch layer and are intentionally omitted.",
     ]
     with open("requirements.lock.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(header + kept) + "\n")

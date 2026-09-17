@@ -19,41 +19,62 @@ NOTES.md   verified versions, measured latencies, actual spend
 
 ## Prerequisites
 
-- Laptop: Node ≥ 22.13 (24 recommended — `node:sqlite` is built in), Python 3 + Pillow
-  (only for `scripts/smoke_test.sh`), Docker with buildx (to build the pod image; no GPU
-  needed to build), a container registry you can push to (Docker Hub / GHCR).
-- RunPod account with ≥ 1 hour of credit at the chosen rate. **Set a low-balance alert in
-  the RunPod console on day one.**
+- Laptop: Node ≥ 22.13 (24 recommended — `node:sqlite` is built in), Python 3 + Pillow,
+  Git, `ssh`/`scp` (Git for Windows has them). **No Docker needed** — images build on
+  GitHub Actions.
+- A GitHub repo for this code (public or private; the *package* must be public or RunPod
+  needs registry auth — see below).
+- RunPod account with ≥ 1 hour of credit at the chosen rate, an API key configured in
+  `runpodctl` (`./tools/runpodctl.exe doctor`), and the SSH public key
+  `~/.ssh/imgedit_runpod.pub` added to the account (`runpodctl ssh add-key`).
+  **Set a low-balance alert in the RunPod console on day one.**
+
+## Image builds (GitHub Actions → GHCR)
+
+```
+git tag v0 && git push origin main v0      # builds ghcr.io/<owner>/imgedit:v0
+```
+
+`.github/workflows/build-image.yml` builds `server/` and pushes `ghcr.io/<owner>/imgedit:<tag>`;
+the run summary shows the digest — copy it into `NOTES.md`. Never `latest`.
+
+After the **first** push: GitHub → your profile → Packages → `imgedit` → Package settings →
+**Change visibility → Public**, so RunPod can pull it without credentials. (The image contains
+only code; the API token is an env var, never baked in.)
+
+Base image is `nvidia/cuda:12.9.0-base-ubuntu24.04` (109 MB) + Python 3.12 + torch 2.9.1+cu129
+from the PyTorch index → ~5 GB compressed. Small on purpose: RunPod pulls it on every cold boot.
 
 ## Build order (do not skip ahead — each phase has an acceptance test)
 
 ### Phase 0 — pin the environment (~$0.25, once)
 
-1. RunPod → Pods → Deploy: **A40 48GB** (Secure or Community), template
-   `runpod/pytorch:1.3.1-cu1290-torch291-ubuntu2404` (pick this exact tag in the template
-   dropdown / "Container Image"), container disk **100 GB** (weights are 58 GB; 80 GB works but
-   is tight), no network volume, expose SSH.
-2. `scp -P <PORT> -r server scripts root@<IP>:/workspace/imgedit/`
-3. On the pod: `bash /workspace/imgedit/scripts/phase0.sh`
-   Installs the pinned deps, checks compute capability, loads the model with the same code
-   as production, runs two edits, writes `phase0_report.json`, `phase0_out.png`,
-   `requirements.lock.txt`.
-4. Copy those three files back; put `requirements.lock.txt` over `server/requirements.lock.txt`;
-   paste the report values into `NOTES.md`.
-5. **Terminate the pod.**
+Runs *inside* the `v0` image on a real GPU, so the frozen lock is exactly what ships.
 
-*Accept when:* `phase0_out.png` is a plausible edit and the lock file is in the repo.
+```
+# 1. build v0 from the provisional lock (top-level pins)         -> Actions, ~10 min, free
+git tag v0 && git push origin main v0
+
+# 2. start a Phase-0 pod (sshd only, no server)                   -> meter starts
+./tools/runpodctl.exe pod create --name imgedit-phase0   --image ghcr.io/<owner>/imgedit:v0 --gpu-id "NVIDIA A40"   --container-disk-in-gb 100 --ports "8000/http,22/tcp"   --env '{"PHASE0":"1","API_TOKEN":"phase0","HF_HOME":"/workspace/hf"}' --wait
+
+# 3. drive it from the laptop: env check, model load, two edits, pip freeze, copy back
+scripts/phase0.sh <POD_ID>
+
+# 4. freeze + terminate
+cp phase0/requirements.lock.txt server/requirements.lock.txt
+./tools/runpodctl.exe pod delete <POD_ID>
+```
+
+*Accept when:* `phase0/phase0_out.png` is a plausible edit and the lock file is in the repo.
+Paste `phase0/phase0_report.json` into `NOTES.md`, commit.
 
 ### Phase 1 — bake and serve
 
 ```
-REGISTRY=docker.io/<you> scripts/build_push.sh v1
+git tag v1 && git push origin main v1        # image from the frozen lock
+./tools/runpodctl.exe pod create --name imgedit   --image ghcr.io/<owner>/imgedit:v1 --gpu-id "NVIDIA A40"   --container-disk-in-gb 100 --ports "8000/http,22/tcp"   --env '{"API_TOKEN":"<long random string>","HF_HOME":"/workspace/hf"}'
 ```
-
-Deploy a pod from `docker.io/<you>/imgedit:v1`:
-- Expose HTTP Ports: `8000`
-- Env: `API_TOKEN=<long random string>`, `HF_HOME=/workspace/hf`
-- Container disk 100 GB, no volume. GPU: A40 48GB (or L40S 48GB later — same image).
 
 Then from the laptop, with a cold pod and nobody SSHing in:
 
@@ -62,7 +83,8 @@ POD_URL=https://<POD_ID>-8000.proxy.runpod.net API_TOKEN=... scripts/smoke_test.
 ```
 
 *Accept when:* it prints `PASS` and `smoke_out.png` exists. Record cold-boot seconds and
-`server_elapsed` in `NOTES.md`.
+`server_elapsed` in `NOTES.md`. Delete the pod (`runpodctl pod delete`) unless you're going
+straight into a session.
 
 ### Phase 2 / 3 — the app
 
@@ -72,8 +94,8 @@ npm install
 npm run dev          # http://127.0.0.1:5173
 ```
 
-Open the Connection panel on the right, paste the pod URL and token, Save (written to
-`web/.env.local`). The pill goes disconnected → loading model → ready.
+Open the Connection panel on the right, paste the pod URL
+(`https://<POD_ID>-8000.proxy.runpod.net`) and the token, Save (written to `web/.env.local`). The pill goes disconnected → loading model → ready.
 
 Drop/paste an image, type an instruction, Enter. The result becomes the active source for
 the next instruction. Click any earlier image to fork from it. `reuse` copies a seed into
@@ -125,5 +147,5 @@ of the input; everything else (queue, polling, saving, branching) is real.
 
 ## Last line
 
-**Terminate the pod at the end of every session.** The app nags after 15 idle minutes;
-the RunPod console is the only thing that actually stops the meter.
+**Terminate the pod at the end of every session** (`./tools/runpodctl.exe pod delete <POD_ID>`
+or the console). The app nags after 15 idle minutes; only deleting the pod stops the meter.

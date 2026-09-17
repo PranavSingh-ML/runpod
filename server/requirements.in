@@ -1,6 +1,6 @@
 # Top-level dependencies, pinned to the versions verified on PyPI on 2026-09-17.
-# torch/torchvision/torchaudio/triton come from the base image and are NOT listed here.
-# Phase 0 installs this on a stock pod, then `pip freeze` produces requirements.lock.txt.
+# torch/torchvision come from the Dockerfile torch layer (cu129 index) and are NOT listed here.
+# requirements.lock.txt is derived from this by Phase 0 (pip freeze inside the v0 image).
 diffusers==0.40.0          # has QwenImageEditPlusPipeline + zero_cond_t (2511). Released 2026-08-20. No git SHA needed.
 transformers==5.17.0
 accelerate==1.15.0

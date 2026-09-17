@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
-# Phase 0 - run ON THE POD (stock runpod/pytorch template, A40 48GB, 80-100GB container disk).
+# Phase 0 - runs FROM THE LAPTOP, drives a pod created from imgedit:v0 with PHASE0=1.
+# Everything happens inside the exact image that will ship, so the pip freeze is the truth.
 #
-#   1. From the laptop, copy server/ and scripts/ up (SSH details are on the pod's Connect tab):
-#        scp -P <PORT> -r server scripts root@<IP>:/workspace/imgedit/
-#   2. On the pod:
-#        bash /workspace/imgedit/scripts/phase0.sh
-#   3. Copy the results back down:
-#        scp -P <PORT> root@<IP>:/workspace/imgedit/server/{requirements.lock.txt,phase0_report.json,phase0_out.png} .
-#      then move requirements.lock.txt -> server/requirements.lock.txt (overwrite the provisional one).
-#   4. TERMINATE THE POD.
+#   scripts/phase0.sh <POD_ID>
 #
-# Budget: ~15-30 min of pod time (weight download ~58GB dominates).
+# Needs: tools/runpodctl.exe configured (runpodctl doctor), ~/.ssh/imgedit_runpod added to the
+# RunPod account, the pod created with --ports "8000/http,22/tcp" --env '{"PHASE0":"1",...}'.
 set -euo pipefail
-cd "$(dirname "$0")/../server"
+POD_ID="${1:?usage: phase0.sh <POD_ID>}"
+cd "$(dirname "$0")/.."
+RP="${RUNPODCTL:-./tools/runpodctl.exe}"
+KEY="${SSH_KEY:-$HOME/.ssh/imgedit_runpod}"
 
-export HF_HOME="${HF_HOME:-/workspace/hf}"
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export HF_HUB_ENABLE_HF_TRANSFER=0   # base image sets 1 but hf_transfer may not be installed; hf_xet is used instead
+echo "== ssh info for $POD_ID =="
+read -r HOST PORT < <(python scripts/pod_ssh.py "$POD_ID")
+echo "ssh root@$HOST -p $PORT"
+SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p "$PORT" "root@$HOST")
 
-echo "== base image / torch =="
-cat /etc/os-release | head -2
-python - <<'PY'
-import torch; print("torch", torch.__version__, "cuda", torch.version.cuda, "cap", torch.cuda.get_device_capability(), torch.cuda.get_device_name())
-PY
-nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader || true
-df -h /workspace | tail -1
+echo "== environment =="
+"${SSH[@]}" 'nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader; df -h / | tail -1; python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.get_device_capability())"'
 
-echo "== pip install (top-level pins) =="
-python -m pip install --no-cache-dir -r requirements.in
+echo "== probe (downloads 58GB of weights on first run; 5-15 min) =="
+"${SSH[@]}" 'cd /app && python phase0_probe.py' "${@:2}"
 
-echo "== probe =="
-python phase0_probe.py "$@"
+echo "== copy results back =="
+mkdir -p phase0
+scp -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P "$PORT" \
+  "root@$HOST:/app/{requirements.lock.txt,phase0_report.json,phase0_out.png,phase0_out_2.png}" phase0/ || true
+ls -la phase0/
+echo
+echo "NEXT: review phase0/phase0_out.png, then:"
+echo "  cp phase0/requirements.lock.txt server/requirements.lock.txt   # freeze it"
+echo "  paste phase0/phase0_report.json values into NOTES.md"
+echo "  $RP pod delete $POD_ID                                        # TERMINATE THE POD"

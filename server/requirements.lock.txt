@@ -1,7 +1,7 @@
-# PROVISIONAL LOCK - replace this whole file with the output of Phase 0 (scripts/phase0.sh)
-# which runs `pip freeze` on the real pod. Until then the Docker build installs exactly
-# these top-level pins (verified on PyPI 2026-09-17) and lets pip resolve transitive deps.
-# torch/torchvision/torchaudio/triton are provided by the base image and must not be listed.
+# PROVISIONAL LOCK - replace this whole file with phase0/requirements.lock.txt after Phase 0
+# (pip freeze taken inside the v0 image on the GPU). Until then the Docker build installs
+# exactly these top-level pins (verified on PyPI 2026-09-17) and lets pip resolve the rest.
+# torch/torchvision come from the Dockerfile torch layer and must not be listed here.
 diffusers==0.40.0
 transformers==5.17.0
 accelerate==1.15.0
