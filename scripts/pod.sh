@@ -28,7 +28,7 @@ for c in ${NODE:+"$NODE"} ${PS_NODE:+"$PS_NODE"} node "/c/Program Files/nodejs/n
   fi
 done
 [ -n "$NODE" ] || { echo "Need Node >= 22 (24 recommended). Found: $(node -v 2>/dev/null || echo none). Install it from nodejs.org and open a new terminal."; exit 1; }
-IMAGE="${IMAGE:-ghcr.io/pranavsingh-ml/imgedit:v1}"
+IMAGE="${IMAGE:-ghcr.io/pranavsingh-ml/imgedit:v2}"
 DISK="${DISK:-100}"
 ENVF="web/.env.local"
 REG_AUTH="${REGISTRY_AUTH_ID:-}"   # set if the GHCR package is private (runpodctl registry list)
