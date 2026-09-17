@@ -13,8 +13,14 @@ RP="${RUNPODCTL:-./tools/runpodctl.exe}"
 [ -x "$RP" ] || RP="./tools/runpodctl"
 [ -x "$RP" ] || { echo "runpodctl not found in tools/ - see README (download it, then: tools\\runpodctl.exe doctor)"; exit 1; }
 # Find a Node >= 22 even if an older node is first on bash's PATH (common on Windows).
-NODE=""
-for c in node "/c/Program Files/nodejs/node.exe" "$HOME/AppData/Roaming/fnm/aliases/default/node.exe" "$HOME/AppData/Roaming/nvm/current/node.exe" "$HOME/scoop/apps/nodejs-lts/current/node.exe"; do
+NODE="${NODE:-}"
+# On Windows, ask PowerShell where *its* node is (it may differ from bash's PATH order).
+PS_NODE=""
+if command -v powershell.exe >/dev/null 2>&1; then
+  PS_NODE="$(powershell.exe -c '(Get-Command node -ErrorAction SilentlyContinue).Source' 2>/dev/null | tr -d '' | head -1 || true)"
+  [ -n "$PS_NODE" ] && command -v cygpath >/dev/null 2>&1 && PS_NODE="$(cygpath -u "$PS_NODE")"
+fi
+for c in ${NODE:+"$NODE"} ${PS_NODE:+"$PS_NODE"} node "/c/Program Files/nodejs/node.exe" "$HOME/AppData/Roaming/fnm/aliases/default/node.exe" "$HOME/AppData/Roaming/nvm/current/node.exe" "$HOME/scoop/apps/nodejs-lts/current/node.exe"; do
   if command -v "$c" >/dev/null 2>&1; then
     v="$("$c" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
     if [ "${v:-0}" -ge 22 ]; then NODE="$c"; break; fi
