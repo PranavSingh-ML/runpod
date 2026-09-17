@@ -17,7 +17,7 @@ runs on a GPU; fill in from `phase0_report.json` / `smoke_test.sh` output.
 | Why no SHA pin | `QwenImageEditPlusPipeline` + `zero_cond_t` (needed by 2511, `_diffusers_version: 0.36.0.dev0` in the model config) are in the 0.40.0 release. A released wheel beats a git SHA for reproducibility. | pipeline file present at tag v0.40.0 |
 | transformers | 5.17.0 (2026-09-09) | PyPI |
 | accelerate | 1.15.0 | PyPI |
-| torchao | 0.18.0 (only used on sm_89+) | PyPI |
+| torchao | **removed from the image.** 0.18.0 imports `torch.nn.functional.ScalingType` (torch ≥ 2.10) and transformers 5.17 imports torchao eagerly when installed → diffusers import failed at build time (Actions run #1, 2026-09-17). `fp8_torchao` is now opt-in. | build log |
 | bitsandbytes | 0.50.2 (only used if `QUANT=nf4`) | PyPI |
 | fastapi / uvicorn | 0.141.1 / 0.53.0 | PyPI |
 | Model revision | `Qwen/Qwen-Image-Edit-2511` @ `6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9`, Apache 2.0, not gated | HF API |
@@ -55,9 +55,9 @@ Decided at boot by `torch.cuda.get_device_capability()` (`server/pipeline.py:res
   given the version-hell history). Transformer ~20.5 GB + text encoder ~8.3 GB + VAE +
   activations ≈ **~30 GB steady, ~41 GB peak during load** (transformer lands in bf16 first,
   LoRA is fused, then cast). Fits 48 GB with no CPU offload.
-- **sm ≥ 8.9 (L40S / 6000 Ada / 4090):** `fp8_torchao` — `Float8DynamicActivationFloat8WeightConfig`
-  on the transformer (real fp8 matmuls), text encoder fp8 layerwise. Untested until Phase 0
-  runs on Ada; fall back to `QUANT=fp8_layerwise` env if torchao errors.
+- **sm ≥ 8.9 (L40S / 6000 Ada / 4090):** also `fp8_layerwise` by default. Real fp8 matmuls via
+  `QUANT=fp8_torchao` are opt-in and need a torch-matched torchao added to `requirements.in`
+  first (0.18.0 is incompatible with torch 2.9.1 — see the pins table).
 - **24 GB cards:** `QUANT=nf4 TEXT_ENCODER_CPU_OFFLOAD=1`. Not the plan.
 - **bf16 unquantised needs ~60 GB** → not possible on any 48 GB card. (The spec's table implies
   it might fit; it does not: 57.7 GB of weights.)

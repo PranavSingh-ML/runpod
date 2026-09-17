@@ -54,10 +54,16 @@ def parse_size(size: str | None, w: int, h: int) -> tuple[int, int]:
 
 
 def resolve_quant(capability: tuple[int, int]) -> str:
-    """Pick the quant path from compute capability, never from the card name."""
+    """Pick the quant path. Capability is logged for the record; fp8_layerwise (fp8 storage,
+    bf16 compute, no extra library) is the default everywhere. Real fp8 compute on sm_89+
+    (fp8_torchao) is opt-in because torchao's torch coupling is exactly the kind of
+    dependency that breaks builds - it did on 2026-09-17."""
     if config.QUANT != "auto":
+        if config.QUANT == "fp8_torchao" and tuple(capability) < (8, 9):
+            log.warning("QUANT=fp8_torchao on capability %s (<8.9): fp8 matmuls unsupported, falling back to fp8_layerwise", capability)
+            return "fp8_layerwise"
         return config.QUANT
-    return "fp8_torchao" if tuple(capability) >= (8, 9) else "fp8_layerwise"
+    return "fp8_layerwise"
 
 
 def to_png_bytes(img: Image.Image) -> bytes:

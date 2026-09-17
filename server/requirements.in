@@ -9,7 +9,9 @@ peft>=0.17                 # LoRA loading / fuse_lora
 sentencepiece
 protobuf
 huggingface_hub[hf_xet]    # fast weight downloads
-torchao==0.18.0            # only used on sm_89+ (fp8_torchao path); harmless on Ampere
+# torchao intentionally NOT installed: 0.18.0 needs torch>=2.10 (ScalingType import) and transformers
+# imports it eagerly when present, which broke the diffusers import at build time (2026-09-17).
+# QUANT=fp8_torchao is opt-in and would need a torch-matched torchao added here.
 bitsandbytes==0.50.2       # only used on QUANT=nf4
 fastapi==0.141.1
 uvicorn[standard]==0.53.0

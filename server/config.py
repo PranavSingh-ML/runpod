@@ -37,11 +37,10 @@ LORA_FILE: str = _env("LORA_FILE", "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-b
 LORA_FUSE: bool = _env("LORA_FUSE", True)  # fuse into weights before quantising (faster; required for fp8 paths)
 
 # ---- quantisation ----------------------------------------------------------
-# auto          -> decided at boot from torch.cuda.get_device_capability():
-#                    >= (8,9)  Ada/Hopper : fp8_torchao   (real FP8 compute)
-#                    <  (8,9)  Ampere     : fp8_layerwise (fp8 storage, bf16 math)
-# fp8_layerwise -> diffusers layerwise casting. No extra library. Ampere-safe.
-# fp8_torchao   -> torchao Float8DynamicActivationFloat8Weight on the transformer. Ada+ only.
+# auto          -> fp8_layerwise on every GPU (capability is still logged; see pipeline.resolve_quant)
+# fp8_layerwise -> diffusers layerwise casting. No extra library. Works on Ampere and Ada.
+# fp8_torchao   -> torchao Float8DynamicActivationFloat8Weight on the transformer. Ada+ only,
+#                  OPT-IN: torchao is not in the image (0.18.0 needs torch>=2.10 - see requirements.in).
 # nf4           -> bitsandbytes 4-bit on transformer + text encoder. Smallest VRAM, slowest.
 #                  Use on 24GB cards. LoRA cannot be fused on this path (it is loaded unfused).
 # bf16          -> no quantisation. Needs ~60GB VRAM. Not for 48GB cards.

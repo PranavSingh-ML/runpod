@@ -42,6 +42,12 @@ import torch, diffusers, transformers
 print("torch", torch.__version__, "cuda", torch.version.cuda)
 print("diffusers", diffusers.__version__, "transformers", transformers.__version__)
 from diffusers import QwenImageEditPlusPipeline, QwenImageTransformer2DModel  # fail the build early if missing
+from diffusers.hooks import apply_layerwise_casting                               # fp8_layerwise path
+import peft; print("peft", peft.__version__)
+try:
+    import bitsandbytes; print("bitsandbytes", bitsandbytes.__version__, "(optional, nf4 path)")
+except Exception as e:  # optional path - warn, don't fail the build
+    print("WARNING bitsandbytes import failed (nf4 path unavailable):", e)
 PY
 
 COPY config.py pipeline.py app.py phase0_probe.py entrypoint.sh /app/
