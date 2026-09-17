@@ -4,13 +4,14 @@
 #
 #   scripts/phase0.sh <POD_ID>
 #
-# Needs: tools/runpodctl.exe configured (runpodctl doctor), ~/.ssh/imgedit_runpod added to the
-# RunPod account, the pod created with --ports "8000/http,22/tcp" --env '{"PHASE0":"1",...}'.
+# Needs: tools/runpodctl.exe configured (runpodctl doctor - which also registers an SSH key),
+# the pod created with --ports "8000/http,22/tcp" --env '{"PHASE0":"1",...}'.
 set -euo pipefail
 POD_ID="${1:?usage: phase0.sh <POD_ID>}"
 cd "$(dirname "$0")/.."
 RP="${RUNPODCTL:-./tools/runpodctl.exe}"
-KEY="${SSH_KEY:-$HOME/.ssh/imgedit_runpod}"
+KEY="${SSH_KEY:-$HOME/.runpod/ssh/runpodctl-ssh-key}"   # made by `runpodctl doctor`; or ~/.ssh/imgedit_runpod if you added that one
+[ -f "$KEY" ] || KEY="$HOME/.ssh/imgedit_runpod"
 
 echo "== ssh info for $POD_ID =="
 read -r HOST PORT < <(python scripts/pod_ssh.py "$POD_ID")
