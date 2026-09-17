@@ -12,16 +12,22 @@ cd "$(dirname "$0")/.."
 RP="${RUNPODCTL:-./tools/runpodctl.exe}"
 [ -x "$RP" ] || RP="./tools/runpodctl"
 [ -x "$RP" ] || { echo "runpodctl not found in tools/ - see README (download it, then: tools\\runpodctl.exe doctor)"; exit 1; }
-command -v node >/dev/null || { echo "node not found on PATH - install Node.js 24 and open a new terminal"; exit 1; }
-NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$NODE_MAJOR" -ge 22 ] || { echo "Node $(node -v) is too old - the app needs Node >= 22.13 (24 recommended). Install it, open a new terminal, re-run npm install in web/."; exit 1; }
+# Find a Node >= 22 even if an older node is first on bash's PATH (common on Windows).
+NODE=""
+for c in node "/c/Program Files/nodejs/node.exe" "$HOME/AppData/Roaming/fnm/aliases/default/node.exe" "$HOME/AppData/Roaming/nvm/current/node.exe" "$HOME/scoop/apps/nodejs-lts/current/node.exe"; do
+  if command -v "$c" >/dev/null 2>&1; then
+    v="$("$c" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    if [ "${v:-0}" -ge 22 ]; then NODE="$c"; break; fi
+  fi
+done
+[ -n "$NODE" ] || { echo "Need Node >= 22 (24 recommended). Found: $(node -v 2>/dev/null || echo none). Install it from nodejs.org and open a new terminal."; exit 1; }
 IMAGE="${IMAGE:-ghcr.io/pranavsingh-ml/imgedit:v1}"
 DISK="${DISK:-100}"
 ENVF="web/.env.local"
 REG_AUTH="${REGISTRY_AUTH_ID:-}"   # set if the GHCR package is private (runpodctl registry list)
 
 # js <script> : run a node one-liner with stdin JSON available as `input` (string)
-js() { node -e "let input='';process.stdin.on('data',d=>input+=d).on('end',()=>{ $1 })"; }
+js() { "$NODE" -e "let input='';process.stdin.on('data',d=>input+=d).on('end',()=>{ $1 })"; }
 token() { grep -E '^API_TOKEN=' "$ENVF" 2>/dev/null | cut -d= -f2- | tr -d '\r' || true; }
 pods_json() { "$RP" pod list -o json 2>/dev/null || echo "[]"; }
 imgedit_ids() { pods_json | js 'const ps=JSON.parse(input||"[]"); console.log(ps.filter(p=>(p.name||"").startsWith("imgedit")).map(p=>p.id).join(" "))'; }
@@ -30,7 +36,7 @@ case "${1:-}" in
   up)
     TOKEN="$(token)"
     if [ -z "$TOKEN" ]; then
-      TOKEN="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+      TOKEN="$("$NODE" -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
       printf 'POD_URL=\nAPI_TOKEN=%s\nPOD_RATE_USD_HR=0.49\nANTHROPIC_API_KEY=\nREWRITE_ENABLED=0\n' "$TOKEN" > "$ENVF"
       echo "generated API_TOKEN -> $ENVF"
     fi
