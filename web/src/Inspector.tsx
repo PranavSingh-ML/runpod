@@ -1,0 +1,206 @@
+import { useState } from "react";
+import { api } from "./api";
+import type { NodeRow, Params, PublicSettings, Status } from "./types";
+
+interface Props {
+  status: Status | null;
+  settings: PublicSettings | null;
+  onSettings: (s: PublicSettings) => void;
+  params: Params;
+  onParams: (p: Params) => void;
+  active: NodeRow | null;
+  onFlash: (m: string) => void;
+}
+
+function fmtDur(s: number) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m.toString().padStart(2, "0")}m` : `${m}m`;
+}
+
+export function Inspector({ status, settings, onSettings, params, onParams, active, onFlash }: Props) {
+  const pod = status?.pod;
+  const sess = status?.session;
+  const state = !pod?.configured ? "unset" : !pod.reachable ? "disconnected" : pod.loadError ? "load-error" : !pod.modelLoaded ? "loading" : "ready";
+  const label = { unset: "no pod URL", disconnected: "disconnected", "load-error": "model failed", loading: "loading model…", ready: "ready" }[state];
+  const set = (patch: Partial<Params>) => onParams({ ...params, ...patch });
+
+  return (
+    <div className="inspector">
+      <section>
+        <div className={`conn ${state}`}>
+          <span className="dot" />
+          <span>{label}</span>
+          {pod?.gpu && (
+            <span className="dim">
+              {" "}
+              · {pod.gpu} {pod.capability ? `sm_${pod.capability.join("")}` : ""} · {pod.quant}
+            </span>
+          )}
+        </div>
+        {pod?.reachable && pod.vramUsedGb != null && (
+          <div className="small dim">
+            VRAM {pod.vramUsedGb.toFixed(1)}{pod.vramTotalGb ? ` / ${pod.vramTotalGb}` : ""} GB · queue {pod.queueDepth}
+            {pod.lora ? " · lightning" : ""}
+          </div>
+        )}
+        {state === "disconnected" && pod?.lastError && <div className="small err">{pod.lastError}</div>}
+        {state === "load-error" && <pre className="small err">{pod?.loadError}</pre>}
+      </section>
+
+      <section className="cost">
+        <div className="big">
+          ${(sess?.costUsd ?? 0).toFixed(2)} <span className="dim small">this session</span>
+        </div>
+        <div className="small dim">
+          {sess?.active ? `${fmtDur(sess.seconds)} at $${sess.rateUsdHr}/hr · ${sess.edits} edits` : "pod not running"} · all-time ≈ $
+          {(sess?.totalSpendUsd ?? 0).toFixed(2)}
+        </div>
+        <button
+          className="link"
+          onClick={() =>
+            api
+              .resetSession()
+              .then(() => onFlash("Session meter reset"))
+              .catch((e) => onFlash(e.message))
+          }
+        >
+          reset meter (new pod)
+        </button>
+      </section>
+
+      <section>
+        <h3>Generation</h3>
+        <label>
+          steps <span className="val">{params.steps}</span>
+          <input type="range" min={1} max={40} value={params.steps} onChange={(e) => set({ steps: Number(e.target.value) })} />
+          <span className="hint">8 for the Lightning LoRA. 20–40 only if LORA_ENABLED=0 on the pod.</span>
+        </label>
+        <label>
+          guidance (true_cfg) <span className="val">{params.guidance.toFixed(1)}</span>
+          <input type="range" min={1} max={8} step={0.5} value={params.guidance} onChange={(e) => set({ guidance: Number(e.target.value) })} />
+          <span className="hint">1.0 with Lightning (also 2× faster). ~4.0 for the base model.</span>
+        </label>
+        <label>
+          seed
+          <div className="row">
+            <input
+              type="number"
+              value={params.seed}
+              min={-1}
+              onChange={(e) => set({ seed: Math.max(-1, Math.floor(Number(e.target.value) || 0)) })}
+            />
+            <button className="btn small" onClick={() => set({ seed: -1 })} title="-1 = random each time">
+              random
+            </button>
+            <button className="btn small" onClick={() => set({ seed: Math.floor(Math.random() * 2 ** 31) })}>
+              🎲
+            </button>
+          </div>
+          <span className="hint">{params.seed < 0 ? "random per edit" : `fixed: ${params.seed}`}</span>
+        </label>
+        <label>
+          resolution
+          <select value={params.longSide} onChange={(e) => set({ longSide: Number(e.target.value) })}>
+            <option value={0}>match input (long side ≤ {pod?.defaults?.max_side ?? 1024})</option>
+            <option value={768}>768 long side (fast)</option>
+            <option value={1024}>1024 long side</option>
+            <option value={1280}>1280 long side</option>
+            <option value={1536}>1536 long side (slow)</option>
+          </select>
+          {active?.width && active.height && (
+            <span className="hint">
+              active source {active.width}×{active.height}
+            </span>
+          )}
+        </label>
+      </section>
+
+      <SettingsPanel settings={settings} onSettings={onSettings} onFlash={onFlash} />
+
+      <section className="small dim">
+        <p>The pod is disposable: every image is already in <code>data/images/</code>.</p>
+        <p>
+          <b>Terminate the pod when you're done.</b>
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSettings | null; onSettings: (s: PublicSettings) => void; onFlash: (m: string) => void }) {
+  const [open, setOpen] = useState(!settings?.podUrl);
+  const [podUrl, setPodUrl] = useState(settings?.podUrl ?? "");
+  const [token, setToken] = useState("");
+  const [key, setKey] = useState("");
+  const [rate, setRate] = useState(String(settings?.rateUsdHr ?? 0.49));
+  const [rewrite, setRewrite] = useState(!!settings?.rewriteEnabled);
+  const [touched, setTouched] = useState(false);
+
+  if (settings && !touched && podUrl === "" && settings.podUrl) {
+    setPodUrl(settings.podUrl);
+    setRate(String(settings.rateUsdHr));
+    setRewrite(settings.rewriteEnabled);
+  }
+
+  const save = async () => {
+    try {
+      const s = await api.saveSettings({
+        podUrl,
+        apiToken: token || undefined,
+        anthropicKey: key || undefined,
+        rateUsdHr: Number(rate),
+        rewriteEnabled: rewrite,
+      });
+      onSettings(s);
+      setToken("");
+      setKey("");
+      onFlash("Settings saved to web/.env.local");
+    } catch (e: any) {
+      onFlash(`save failed: ${e.message}`);
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="clickable" onClick={() => setOpen(!open)}>
+        Connection {open ? "▾" : "▸"}
+      </h3>
+      {open && (
+        <div className="settings">
+          <label>
+            pod URL
+            <input
+              placeholder="https://<POD_ID>-8000.proxy.runpod.net"
+              value={podUrl}
+              onChange={(e) => {
+                setTouched(true);
+                setPodUrl(e.target.value);
+              }}
+            />
+          </label>
+          <label>
+            API token {settings?.hasToken && <span className="dim">(set: {settings.tokenMasked})</span>}
+            <input type="password" placeholder={settings?.hasToken ? "leave blank to keep" : "same as the pod's API_TOKEN env"} value={token} onChange={(e) => setToken(e.target.value)} />
+          </label>
+          <label>
+            $/hr for the cost meter
+            <input value={rate} onChange={(e) => setRate(e.target.value)} />
+            <span className="hint">A40 Secure $0.49 · A40 Community $0.35 · L40S $1.09 (RunPod, 2026-09-17)</span>
+          </label>
+          <label>
+            Anthropic API key (optional, prompt rewriter) {settings?.hasAnthropicKey && <span className="dim">(set: {settings.anthropicKeyMasked})</span>}
+            <input type="password" placeholder={settings?.hasAnthropicKey ? "leave blank to keep" : "sk-ant-…"} value={key} onChange={(e) => setKey(e.target.value)} />
+          </label>
+          <label className="row">
+            <input type="checkbox" checked={rewrite} onChange={(e) => setRewrite(e.target.checked)} disabled={!settings?.hasAnthropicKey && !key} />
+            enable “Rewrite” button
+          </label>
+          <button className="btn primary" onClick={() => void save()}>
+            Save
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}

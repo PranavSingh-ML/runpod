@@ -1,0 +1,17 @@
+# Top-level dependencies, pinned to the versions verified on PyPI on 2026-09-17.
+# torch/torchvision/torchaudio/triton come from the base image and are NOT listed here.
+# Phase 0 installs this on a stock pod, then `pip freeze` produces requirements.lock.txt.
+diffusers==0.40.0          # has QwenImageEditPlusPipeline + zero_cond_t (2511). Released 2026-08-20. No git SHA needed.
+transformers==5.17.0
+accelerate==1.15.0
+safetensors>=0.5
+peft>=0.17                 # LoRA loading / fuse_lora
+sentencepiece
+protobuf
+huggingface_hub[hf_xet]    # fast weight downloads
+torchao==0.18.0            # only used on sm_89+ (fp8_torchao path); harmless on Ampere
+bitsandbytes==0.50.2       # only used on QUANT=nf4
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart
+pillow

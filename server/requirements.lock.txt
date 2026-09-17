@@ -1,0 +1,18 @@
+# PROVISIONAL LOCK - replace this whole file with the output of Phase 0 (scripts/phase0.sh)
+# which runs `pip freeze` on the real pod. Until then the Docker build installs exactly
+# these top-level pins (verified on PyPI 2026-09-17) and lets pip resolve transitive deps.
+# torch/torchvision/torchaudio/triton are provided by the base image and must not be listed.
+diffusers==0.40.0
+transformers==5.17.0
+accelerate==1.15.0
+safetensors>=0.5
+peft>=0.17
+sentencepiece
+protobuf
+huggingface_hub[hf_xet]
+torchao==0.18.0
+bitsandbytes==0.50.2
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+python-multipart
+pillow
