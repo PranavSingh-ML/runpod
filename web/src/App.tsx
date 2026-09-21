@@ -258,7 +258,10 @@ export default function App() {
 
         {status?.pod.reachable && status.pod.modelLoaded && idleMin >= 15 && (
           <div className="banner warn">
-            Pod idle for {Math.floor(idleMin)} min at ${status.session.rateUsdHr}/hr. If you're done, <b>terminate the pod</b> in the RunPod console.
+            Pod idle for {Math.floor(idleMin)} min at ${status.session.rateUsdHr}/hr.{" "}
+            {status.session.autoStopInSeconds != null
+              ? `It will auto-stop in ${Math.ceil(status.session.autoStopInSeconds / 60)} min unless you send an edit.`
+              : "If you're done, stop the pod (Pod panel on the right)."}
           </div>
         )}
 

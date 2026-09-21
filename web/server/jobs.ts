@@ -6,7 +6,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import * as db from "./db.js";
 import * as pod from "./pod.js";
-import { IMAGES_DIR, settings } from "./settings.js";
+import * as runpod from "./runpod.js";
+import { IMAGES_DIR, saveSettings, settings } from "./settings.js";
 
 export function imagePathFor(id: string) {
   return path.join(IMAGES_DIR, `${id}.png`);
@@ -23,7 +24,113 @@ export const podState: {
   lastError: string | null;
   lastOkAt: number | null;
   lastEditAt: number | null;
-} = { reachable: false, health: null, lastError: null, lastOkAt: null, lastEditAt: null };
+  modelLoadedAt: number | null; // when this process first saw model_loaded=true; idle counts from here
+} = { reachable: false, health: null, lastError: null, lastOkAt: null, lastEditAt: null, modelLoadedAt: null };
+
+// ---- pod control (runpodctl) ---------------------------------------------------
+export const control: {
+  available: boolean;
+  pods: runpod.PodInfo[];
+  balance: number | null;
+  spendPerHr: number | null;
+  busy: "starting" | "stopping" | null;
+  lastAction: string | null;
+  lastError: string | null;
+  listedAt: number | null;
+} = { available: false, pods: [], balance: null, spendPerHr: null, busy: null, lastAction: null, lastError: null, listedAt: null };
+
+export async function refreshControl() {
+  control.available = !!runpod.runpodctlPath();
+  if (!control.available) return;
+  try {
+    control.pods = await runpod.imgeditPods();
+    const b = await runpod.balance();
+    control.balance = b.balance;
+    control.spendPerHr = b.spendPerHr;
+    control.listedAt = Date.now();
+    control.lastError = null;
+  } catch (e: any) {
+    control.lastError = e?.message ?? String(e);
+  }
+}
+
+export async function podUp(choice: string) {
+  if (control.busy) throw new Error(`already ${control.busy}`);
+  if (!runpod.runpodctlPath()) throw new Error("runpodctl not found in tools/ - see README (download it, then: tools\runpodctl.exe doctor)");
+  await refreshControl();
+  if (control.pods.length) throw new Error(`a pod already exists: ${control.pods.map((p) => p.id).join(" ")}`);
+  control.busy = "starting";
+  try {
+    if (!settings.API_TOKEN) saveSettings({ API_TOKEN: randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "") });
+    const p = await runpod.createPod({
+      token: settings.API_TOKEN,
+      image: settings.POD_IMAGE,
+      diskGb: 100,
+      choice: (choice in runpod.GPU_CHOICES ? choice : "auto") as keyof typeof runpod.GPU_CHOICES,
+      registryAuthId: process.env.REGISTRY_AUTH_ID || undefined,
+    });
+    saveSettings({ POD_URL: p.url, POD_RATE_USD_HR: p.costPerHr || settings.POD_RATE_USD_HR });
+    podState.modelLoadedAt = null;
+    podState.lastEditAt = null;
+    control.lastAction = `created ${p.id} (${p.gpu}, ${p.cloud}) at $${p.costPerHr}/hr`;
+    control.lastError = null;
+    await refreshControl();
+    void pollHealth();
+    return p;
+  } catch (e: any) {
+    control.lastError = e?.message ?? String(e);
+    throw e;
+  } finally {
+    control.busy = null;
+  }
+}
+
+export async function podDown(reason = "user") {
+  if (control.busy) throw new Error(`already ${control.busy}`);
+  control.busy = "stopping";
+  try {
+    const pods = await runpod.imgeditPods();
+    for (const p of pods) await runpod.deletePod(p.id);
+    const s = db.openSession();
+    if (s) db.endSession(s.id, Date.now() / 1000);
+    podState.reachable = false;
+    podState.health = null;
+    podState.modelLoadedAt = null;
+    control.lastAction = pods.length ? `deleted ${pods.map((p) => p.id).join(" ")} (${reason})` : "no imgedit pods to delete";
+    control.lastError = null;
+    await refreshControl();
+    return pods.map((p) => p.id);
+  } catch (e: any) {
+    control.lastError = e?.message ?? String(e);
+    throw e;
+  } finally {
+    control.busy = null;
+  }
+}
+
+function idleSecondsNow(): number {
+  if (!podState.reachable || !podState.health?.model_loaded || !podState.modelLoadedAt) return 0;
+  if (inflight.size > 0) return 0;
+  const since = Math.max(podState.modelLoadedAt, podState.lastEditAt ?? 0);
+  return (Date.now() - since) / 1000;
+}
+
+export function autoStopInSeconds(): number | null {
+  if (!settings.AUTO_STOP_MIN || !control.available) return null;
+  if (!podState.reachable || !podState.health?.model_loaded) return null;
+  return Math.max(0, settings.AUTO_STOP_MIN * 60 - idleSecondsNow());
+}
+
+async function maybeAutoStop() {
+  if (!settings.AUTO_STOP_MIN || !control.available || control.busy) return;
+  if (idleSecondsNow() < settings.AUTO_STOP_MIN * 60) return;
+  console.log(`[auto-stop] pod idle for ${settings.AUTO_STOP_MIN} min - deleting`);
+  try {
+    await podDown(`auto-stop after ${settings.AUTO_STOP_MIN} idle min`);
+  } catch (e: any) {
+    console.error("[auto-stop] failed:", e?.message ?? e);
+  }
+}
 
 async function pollHealth() {
   if (!settings.POD_URL) {
@@ -38,12 +145,15 @@ async function pollHealth() {
     podState.health = h;
     podState.lastError = null;
     podState.lastOkAt = Date.now();
+    if (h.model_loaded && !podState.modelLoadedAt) podState.modelLoadedAt = Date.now();
+    if (!h.model_loaded) podState.modelLoadedAt = null;
     // session cost meter: a session is "the pod is reachable"
     const s = db.openSession();
     if (!s) db.startSession(settings.POD_RATE_USD_HR);
     else db.touchSession(s.id, settings.POD_RATE_USD_HR);
   } catch (e: any) {
     podState.reachable = false;
+    podState.modelLoadedAt = null;
     podState.lastError = e?.message ?? String(e);
     const s = db.openSession();
     // pod gone for > 3 min => session over (terminated or stopped)
@@ -53,7 +163,12 @@ async function pollHealth() {
 
 export function startHealthLoop() {
   void pollHealth();
-  setInterval(() => void pollHealth(), 10_000);
+  void refreshControl();
+  let tick = 0;
+  setInterval(() => {
+    void pollHealth().then(maybeAutoStop);
+    if (++tick % 3 === 0) void refreshControl(); // runpodctl every 30s
+  }, 10_000);
 }
 
 export function pokeHealth() {
@@ -72,7 +187,9 @@ export function sessionInfo() {
     costUsd: (seconds / 3600) * settings.POD_RATE_USD_HR,
     edits: s?.edits ?? 0,
     totalSpendUsd: db.totalSpend(),
-    idleSeconds: podState.lastEditAt ? (Date.now() - podState.lastEditAt) / 1000 : podState.lastOkAt ? seconds : 0,
+    idleSeconds: idleSecondsNow(),
+    autoStopMin: settings.AUTO_STOP_MIN,
+    autoStopInSeconds: autoStopInSeconds(),
   };
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { NodeRow, Params, PublicSettings, Status } from "./types";
 
@@ -27,6 +27,8 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
 
   return (
     <div className="inspector">
+      <PodPanel status={status} onFlash={onFlash} />
+
       <section>
         <div className={`conn ${state}`}>
           <span className="dot" />
@@ -135,13 +137,19 @@ function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSett
   const [key, setKey] = useState("");
   const [rate, setRate] = useState(String(settings?.rateUsdHr ?? 0.49));
   const [rewrite, setRewrite] = useState(!!settings?.rewriteEnabled);
+  const [autoStop, setAutoStop] = useState(String(settings?.autoStopMin ?? 20));
+  const [image, setImage] = useState(settings?.podImage ?? "");
   const [touched, setTouched] = useState(false);
 
-  if (settings && !touched && podUrl === "" && settings.podUrl) {
+  // sync from the server-loaded settings (they arrive after first render, and change on Start/Stop)
+  useEffect(() => {
+    if (!settings || touched) return;
     setPodUrl(settings.podUrl);
     setRate(String(settings.rateUsdHr));
     setRewrite(settings.rewriteEnabled);
-  }
+    setAutoStop(String(settings.autoStopMin));
+    setImage(settings.podImage);
+  }, [settings, touched]);
 
   const save = async () => {
     try {
@@ -151,7 +159,10 @@ function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSett
         anthropicKey: key || undefined,
         rateUsdHr: Number(rate),
         rewriteEnabled: rewrite,
+        autoStopMin: Math.max(0, Math.floor(Number(autoStop) || 0)),
+        podImage: image.trim() || undefined,
       });
+      setTouched(false);
       onSettings(s);
       setToken("");
       setKey("");
@@ -196,11 +207,136 @@ function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSett
             <input type="checkbox" checked={rewrite} onChange={(e) => setRewrite(e.target.checked)} disabled={!settings?.hasAnthropicKey && !key} />
             enable “Rewrite” button
           </label>
+          <label>
+            auto-stop the pod after (idle minutes, 0 = off)
+            <input
+              value={autoStop}
+              onChange={(e) => {
+                setTouched(true);
+                setAutoStop(e.target.value);
+              }}
+            />
+            <span className="hint">Idle = no edit submitted since the model finished loading. Deleting the pod is the only thing that stops billing.</span>
+          </label>
+          <label>
+            pod image (used by Start)
+            <input
+              value={image}
+              onChange={(e) => {
+                setTouched(true);
+                setImage(e.target.value);
+              }}
+            />
+          </label>
           <button className="btn primary" onClick={() => void save()}>
             Save
           </button>
         </div>
       )}
+    </section>
+  );
+}
+
+function fmtCountdown(s: number) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m ? `${m}m ${sec.toString().padStart(2, "0")}s` : `${sec}s`;
+}
+
+// Start / Stop the RunPod pod from the app (the local server shells out to runpodctl).
+// "wait" is the boot-phase line, fed by the health poller.
+function PodPanel({ status, onFlash }: { status: Status | null; onFlash: (m: string) => void }) {
+  const [gpu, setGpu] = useState("auto");
+  const [pending, setPending] = useState(false);
+  const c = status?.control;
+  const pod = status?.pod;
+  const sess = status?.session;
+  if (!status || !c) return null;
+
+  const busy = pending || !!c.busy;
+  const running = c.pods.length > 0;
+  const phase = !pod?.reachable
+    ? "booting - image pull + 58 GB of weights, ~6-12 min"
+    : pod.loadError
+      ? "model failed to load - stop the pod"
+      : !pod.modelLoaded
+        ? "loading model…"
+        : "ready";
+
+  const start = async () => {
+    setPending(true);
+    try {
+      const p = await api.podUp(gpu);
+      onFlash(`pod ${p.id} created (${p.gpu}, ${p.cloud}) at $${p.costPerHr}/hr - booting`);
+    } catch (e: any) {
+      onFlash(`start failed: ${e.message}`);
+    } finally {
+      setPending(false);
+    }
+  };
+  const stop = async () => {
+    if (!confirm("Delete the pod? This stops billing. Every image is already saved in data/images/.")) return;
+    setPending(true);
+    try {
+      const r = await api.podDown();
+      onFlash(r.deleted.length ? `deleted ${r.deleted.join(" ")} - billing stopped` : "no imgedit pod was running");
+    } catch (e: any) {
+      onFlash(`stop failed: ${e.message}`);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <section className="podctl">
+      <h3>Pod</h3>
+      {!c.available ? (
+        <div className="small dim">
+          <code>tools/runpodctl.exe</code> not found - Start/Stop unavailable. Download it (see README), run <code>doctor</code>, restart the app.
+          Or use <code>pod.cmd</code> and paste the URL below.
+        </div>
+      ) : running ? (
+        <>
+          {c.pods.map((p) => (
+            <div key={p.id} className="small">
+              <b>{p.id}</b> · ${p.costPerHr}/hr · up {Math.floor(p.uptimeSeconds / 60)} min · {p.status}
+            </div>
+          ))}
+          <div className={`small ${pod?.modelLoaded ? "" : "dim"}`}>{phase}</div>
+          <div className="small dim">
+            {sess?.autoStopMin
+              ? sess.autoStopInSeconds != null
+                ? `auto-stop after ${sess.autoStopMin} idle min · stops in ${fmtCountdown(sess.autoStopInSeconds)}`
+                : `auto-stop after ${sess.autoStopMin} idle min (counting starts once the model is loaded)`
+              : "auto-stop is OFF - remember to stop the pod"}
+          </div>
+          <button className="btn danger" disabled={busy} onClick={() => void stop()}>
+            {c.busy === "stopping" ? "stopping…" : "Stop pod (stops billing)"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="row">
+            <select value={gpu} onChange={(e) => setGpu(e.target.value)} disabled={busy}>
+              <option value="auto">auto (A40 → A6000)</option>
+              <option value="a40">A40 Secure $0.49/hr</option>
+              <option value="a6000">RTX A6000 $0.53/hr</option>
+            </select>
+            <button className="btn primary" disabled={busy} onClick={() => void start()}>
+              {c.busy === "starting" ? "creating…" : "Start pod"}
+            </button>
+          </div>
+          <div className="small dim">no pod running - not being billed · image {c.image.replace(/^ghcr\.io\//, "")}</div>
+        </>
+      )}
+      {c.balance != null && (
+        <div className="small dim">
+          RunPod balance ${c.balance.toFixed(2)}
+          {c.spendPerHr ? ` · spending $${c.spendPerHr}/hr` : ""}
+        </div>
+      )}
+      {c.lastAction && <div className="small dim">{c.lastAction}</div>}
+      {c.lastError && <div className="small err">{c.lastError}</div>}
     </section>
   );
 }

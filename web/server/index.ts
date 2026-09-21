@@ -33,6 +33,8 @@ app.put(
     if (b.clearAnthropicKey === true) patch.ANTHROPIC_API_KEY = "";
     if (typeof b.rateUsdHr === "number" && b.rateUsdHr >= 0) patch.POD_RATE_USD_HR = b.rateUsdHr;
     if (typeof b.rewriteEnabled === "boolean") patch.REWRITE_ENABLED = b.rewriteEnabled;
+    if (typeof b.autoStopMin === "number" && b.autoStopMin >= 0) patch.AUTO_STOP_MIN = Math.floor(b.autoStopMin);
+    if (typeof b.podImage === "string" && b.podImage.trim()) patch.POD_IMAGE = b.podImage.trim();
     saveSettings(patch);
     await jobs.pokeHealth();
     res.json(publicSettings());
@@ -60,12 +62,44 @@ app.get("/api/status", (_req, res) => {
       lastError: jobs.podState.lastError,
     },
     session: jobs.sessionInfo(),
+    control: {
+      available: jobs.control.available,
+      pods: jobs.control.pods,
+      balance: jobs.control.balance,
+      spendPerHr: jobs.control.spendPerHr,
+      busy: jobs.control.busy,
+      lastAction: jobs.control.lastAction,
+      lastError: jobs.control.lastError,
+      image: settings.POD_IMAGE,
+    },
   });
 });
 app.post("/api/session/reset", (_req, res) => {
   jobs.resetSession();
   res.json(jobs.sessionInfo());
 });
+
+// ---- pod lifecycle (runpodctl; replaces scripts/pod.sh up|down for daily use) ------
+app.post(
+  "/api/pod/up",
+  wrap(async (req, res) => {
+    const choice = typeof req.body?.gpu === "string" ? req.body.gpu : "auto";
+    res.json(await jobs.podUp(choice));
+  }),
+);
+app.post(
+  "/api/pod/down",
+  wrap(async (_req, res) => {
+    res.json({ deleted: await jobs.podDown() });
+  }),
+);
+app.post(
+  "/api/pod/refresh",
+  wrap(async (_req, res) => {
+    await jobs.refreshControl();
+    res.json(jobs.control);
+  }),
+);
 
 // ---- nodes -------------------------------------------------------------------
 app.get("/api/nodes", (_req, res) => res.json(db.allNodes()));

@@ -277,6 +277,22 @@ body,
   padding: 4px 10px;
   font-size: 12px;
 }
+.btn.danger {
+  border-color: var(--err);
+  color: var(--err);
+}
+.podctl .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.podctl .row select {
+  flex: 1;
+}
+.podctl .btn {
+  margin-top: 6px;
+}
 .btn:disabled {
   opacity: 0.4;
   cursor: default;

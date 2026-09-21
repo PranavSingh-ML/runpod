@@ -12,16 +12,27 @@ Always use `.\pod.cmd <up|wait|status|down>` on Windows — it runs `scripts/pod
 ## The one rule
 
 **A running pod costs money every minute ($0.49–0.53/hr). Never end a session with a pod up
-unless the user explicitly said to keep it.** `bash scripts/pod.sh down` is the only thing that
-stops billing ("stop" in the RunPod console does NOT — a stopped pod still bills its disk).
-Check with `bash scripts/pod.sh status` whenever unsure.
+unless the user explicitly said to keep it.** Deleting the pod (*Stop pod* in the app,
+`bash scripts/pod.sh down`, or `POST /api/pod/down`) is the only thing that stops billing ("stop"
+in the RunPod console does NOT — a stopped pod still bills its disk). Check with
+`bash scripts/pod.sh status` or the Pod panel whenever unsure.
 
 ## Daily use (nothing to build)
 
 ```
+cd web && npm run dev         # http://127.0.0.1:5173  — user edits pictures here
+```
+
+The app's **Pod** panel does start / wait / stop (`web/server/runpod.ts` shells out to
+`tools/runpodctl.exe`; the app never touches the API key). **Auto-stop** deletes the pod after
+`AUTO_STOP_MIN` idle minutes (default 20, in `web/.env.local` / Connection panel; 0 = off). Idle
+= no edit submitted since the model loaded; it never fires while an edit is in flight.
+
+Terminal equivalent (still works, same GPU fallback):
+
+```
 .\pod.cmd up               # (Windows) creates the pod, writes POD_URL into web/.env.local  (~6-12 min cold boot)
 .\pod.cmd wait             # blocks until the model is loaded
-cd web && npm run dev         # http://127.0.0.1:5173  — user edits pictures here
 .\pod.cmd down             # WHEN DONE   (Linux/mac: bash scripts/pod.sh <cmd>)
 ```
 

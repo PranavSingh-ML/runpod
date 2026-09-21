@@ -13,7 +13,9 @@ stateless inference server built from a pinned Docker image.
 server/    Dockerfile, requirements.lock.txt, app.py, pipeline.py, config.py  (runs on the pod)
 web/       the local app                                                    (runs on the laptop)
 data/      history.sqlite + images/                                          (gitignored, yours)
-scripts/   phase0.sh, build_push.sh, smoke_test.sh
+scripts/   pod.sh (up|wait|status|down), phase0.sh, build_push.sh, smoke_test.sh
+pod.cmd    Windows wrapper: runs scripts/pod.sh under Git Bash (not WSL)
+tools/     runpodctl.exe (gitignored - download it; see Prerequisites)
 NOTES.md   verified versions, measured latencies, actual spend
 ```
 
@@ -100,8 +102,16 @@ npm install
 npm run dev          # http://127.0.0.1:5173
 ```
 
-Open the Connection panel on the right, paste the pod URL
-(`https://<POD_ID>-8000.proxy.runpod.net`) and the token, Save (written to `web/.env.local`). The pill goes disconnected → loading model → ready.
+**Start the pod from the app:** the *Pod* panel (top right) has **Start pod** (A40 → A6000
+fallback, same as `pod.sh up`), a boot-phase line (booting → loading model → ready, i.e. `pod.sh
+wait`), **Stop pod**, your RunPod balance, and an **auto-stop** countdown. Auto-stop deletes the
+pod after 20 idle minutes by default (idle = no edit submitted since the model loaded; set it in
+Connection → *auto-stop*, 0 = off). It needs `tools/runpodctl.exe` configured with `doctor`; the
+app shells out to it and never sees your RunPod API key.
+
+Without runpodctl you can still run `.\pod.cmd up` (or `bash scripts/pod.sh up`), or paste a pod
+URL and token into the Connection panel by hand; Save writes them to `web/.env.local`. The pill goes
+disconnected → loading model → ready.
 
 Drop/paste an image, type an instruction, Enter. The result becomes the active source for
 the next instruction. Click any earlier image to fork from it. `reuse` copies a seed into
@@ -153,5 +163,6 @@ of the input; everything else (queue, polling, saving, branching) is real.
 
 ## Last line
 
-**Terminate the pod at the end of every session** (`./tools/runpodctl.exe pod delete <POD_ID>`
-or the console). The app nags after 15 idle minutes; only deleting the pod stops the meter.
+**Terminate the pod at the end of every session** — *Stop pod* in the app, `.\pod.cmd down`, or
+`./tools/runpodctl.exe pod delete <POD_ID>`. The app auto-stops after 20 idle minutes (if runpodctl
+is set up) and nags after 15; only deleting the pod stops the meter.

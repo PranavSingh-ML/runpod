@@ -1,4 +1,4 @@
-import type { NodeRow, PublicSettings, Status } from "./types";
+import type { NodeRow, PodInfo, PublicSettings, Status } from "./types";
 
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -21,6 +21,11 @@ export const api = {
     ),
   status: () => fetch("/api/status").then((r) => j<Status>(r)),
   resetSession: () => fetch("/api/session/reset", { method: "POST" }).then((r) => j<unknown>(r)),
+  podUp: (gpu: string) =>
+    fetch("/api/pod/up", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gpu }) }).then((r) =>
+      j<PodInfo & { gpu: string; cloud: string }>(r),
+    ),
+  podDown: () => fetch("/api/pod/down", { method: "POST" }).then((r) => j<{ deleted: string[] }>(r)),
   nodes: () => fetch("/api/nodes").then((r) => j<NodeRow[]>(r)),
   upload: (file: File | Blob, kind: "source" | "ref" = "source", name?: string) => {
     const fd = new FormData();

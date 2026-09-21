@@ -16,6 +16,8 @@ export interface Settings {
   ANTHROPIC_API_KEY: string;
   POD_RATE_USD_HR: number;
   REWRITE_ENABLED: boolean;
+  AUTO_STOP_MIN: number; // 0 = off. Delete the pod after this many idle minutes (no edit submitted).
+  POD_IMAGE: string; // image used by the in-app Start button (same default as scripts/pod.sh)
 }
 
 const defaults: Settings = {
@@ -24,6 +26,8 @@ const defaults: Settings = {
   ANTHROPIC_API_KEY: "",
   POD_RATE_USD_HR: 0.49, // A40 Secure Cloud, verified 2026-09-17
   REWRITE_ENABLED: false,
+  AUTO_STOP_MIN: 20,
+  POD_IMAGE: "ghcr.io/pranavsingh-ml/imgedit:v2",
 };
 
 function parseEnv(text: string): Record<string, string> {
@@ -52,6 +56,9 @@ export function loadSettings(): Settings {
   const rate = parseFloat(get("POD_RATE_USD_HR") ?? "");
   if (Number.isFinite(rate) && rate >= 0) s.POD_RATE_USD_HR = rate;
   s.REWRITE_ENABLED = /^(1|true|yes)$/i.test(get("REWRITE_ENABLED") ?? "");
+  const autoStop = parseInt(get("AUTO_STOP_MIN") ?? "", 10);
+  if (Number.isFinite(autoStop) && autoStop >= 0) s.AUTO_STOP_MIN = autoStop;
+  s.POD_IMAGE = (get("IMAGE") ?? get("POD_IMAGE") ?? "").trim() || defaults.POD_IMAGE;
   return s;
 }
 
@@ -67,6 +74,8 @@ export function saveSettings(patch: Partial<Settings>): Settings {
     `POD_RATE_USD_HR=${settings.POD_RATE_USD_HR}`,
     `ANTHROPIC_API_KEY=${settings.ANTHROPIC_API_KEY}`,
     `REWRITE_ENABLED=${settings.REWRITE_ENABLED ? "1" : "0"}`,
+    `AUTO_STOP_MIN=${settings.AUTO_STOP_MIN}`,
+    `POD_IMAGE=${settings.POD_IMAGE}`,
     "",
   ];
   fs.writeFileSync(ENV_PATH, lines.join("\n"), "utf8");
@@ -83,5 +92,7 @@ export function publicSettings() {
     anthropicKeyMasked: mask(settings.ANTHROPIC_API_KEY),
     rateUsdHr: settings.POD_RATE_USD_HR,
     rewriteEnabled: settings.REWRITE_ENABLED,
+    autoStopMin: settings.AUTO_STOP_MIN,
+    podImage: settings.POD_IMAGE,
   };
 }

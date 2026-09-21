@@ -45,7 +45,28 @@ export interface Status {
     edits: number;
     totalSpendUsd: number;
     idleSeconds: number;
+    autoStopMin: number;
+    autoStopInSeconds: number | null;
   };
+  control: {
+    available: boolean;
+    pods: PodInfo[];
+    balance: number | null;
+    spendPerHr: number | null;
+    busy: "starting" | "stopping" | null;
+    lastAction: string | null;
+    lastError: string | null;
+    image: string;
+  };
+}
+
+export interface PodInfo {
+  id: string;
+  name: string;
+  status: string;
+  costPerHr: number;
+  uptimeSeconds: number;
+  url: string;
 }
 
 export interface PublicSettings {
@@ -56,6 +77,8 @@ export interface PublicSettings {
   anthropicKeyMasked: string;
   rateUsdHr: number;
   rewriteEnabled: boolean;
+  autoStopMin: number;
+  podImage: string;
 }
 
 export interface Params {
