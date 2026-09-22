@@ -81,7 +81,10 @@ class Rewriter:
         if config.PE_QUANT == "fp8_layerwise":
             from pipeline import fp8_cast_module
 
-            fp8_cast_module(self.model)
+            # "conv" must be skipped: Qwen3.5's linear-attention path calls causal_conv1d_fn, a free
+            # function that reads conv1d.weight directly, so the layerwise upcast hook never fires and
+            # F.conv1d gets an fp8 weight -> NotImplementedError (A6000, 2026-09-22).
+            fp8_cast_module(self.model, skip=("norm", "embed", "lm_head", "patch", "conv"))
         path = huggingface_hub.hf_hub_download(config.PE_MODEL_ID, "system_prompt.txt", **kw)
         with open(path, encoding="utf-8") as f:
             self.system_prompt = f.read().strip()
