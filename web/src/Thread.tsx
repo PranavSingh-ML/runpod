@@ -135,7 +135,7 @@ function Card({
         ) : (
           <>
             <span className="dim">
-              {n.width && n.height ? `${n.width}×${n.height}` : ""} · {n.steps ?? "?"} steps · cfg {n.guidance ?? "?"}
+              {n.width && n.height ? `${n.width}×${n.height}` : ""}{n.resolution ? ` (${n.resolution}²)` : ""} · {n.steps ?? "?"} steps · cfg {n.guidance ?? "?"}
               {n.elapsed_s && n.status === "done" ? ` · ${n.elapsed_s.toFixed(1)}s` : ""}
             </span>
             <span className="seed">

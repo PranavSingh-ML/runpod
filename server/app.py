@@ -3,11 +3,12 @@
 Contract (see README / spec section 4):
   GET    /health                  no auth
   POST   /edit                    multipart -> 202 {"job_id"}
-  GET    /jobs/{id}               status/progress/seed/elapsed/error
+  POST   /rewrite                 multipart -> 202 {"job_id"}   (prompt rewriter, if loaded)
+  GET    /jobs/{id}               status/progress/seed/elapsed/error (+ result for rewrite jobs)
   GET    /jobs/{id}/image         image/png when done
   DELETE /jobs/{id}
 
-One GPU, one worker thread. The worker never dies on a job exception.
+One GPU, one worker thread shared by edits and rewrites. The worker never dies on a job exception.
 """
 from __future__ import annotations
 
@@ -31,7 +32,8 @@ from fastapi.responses import JSONResponse
 from PIL import Image
 
 import config
-from pipeline import make_engine, parse_size, to_png_bytes
+from pipeline import make_engine, parse_resolution, parse_size, to_png_bytes
+from rewriter import make_rewriter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("app")
@@ -47,6 +49,7 @@ if not config.API_TOKEN and not config.MOCK:
 @dataclass
 class Job:
     id: str
+    kind: str = "edit"  # edit | rewrite
     status: str = "queued"  # queued | running | done | error
     progress: float = 0.0
     seed: int = 0
@@ -63,13 +66,20 @@ class Job:
     guidance: float = 1.0
     width: int = 1024
     height: int = 1024
+    resolution: int = 1024
+    instruction: str = ""  # rewrite jobs
     # output
     png: Optional[bytes] = None
+    result: Optional[dict] = None  # rewrite jobs
 
     def public(self) -> dict:
-        return {"status": self.status, "progress": round(self.progress, 3), "seed": self.seed,
-                "elapsed_s": round(self.elapsed_s, 2), "error": self.error,
-                "width": self.width, "height": self.height, "steps": self.steps, "guidance": self.guidance}
+        d = {"kind": self.kind, "status": self.status, "progress": round(self.progress, 3), "seed": self.seed,
+             "elapsed_s": round(self.elapsed_s, 2), "error": self.error,
+             "width": self.width, "height": self.height, "steps": self.steps, "guidance": self.guidance,
+             "resolution": self.resolution}
+        if self.kind == "rewrite":
+            d["result"] = self.result
+        return d
 
 
 class JobStore:
@@ -115,16 +125,19 @@ class JobStore:
 
 store = JobStore()
 engine = make_engine()
-state = {"model_loaded": False, "load_error": None, "started_at": time.time()}
+rewriter = make_rewriter()
+state = {"model_loaded": False, "rewriter_loaded": False, "load_error": None, "started_at": time.time()}
 
 
 # ----------------------------------------------------------------------------
 # worker
 # ----------------------------------------------------------------------------
 def _log_job(job: Job) -> None:
-    rec = {"ts": time.time(), "job_id": job.id, "prompt": job.prompt, "negative": job.negative, "seed": job.seed,
-           "steps": job.steps, "guidance": job.guidance, "width": job.width, "height": job.height,
+    rec = {"ts": time.time(), "job_id": job.id, "kind": job.kind, "prompt": job.prompt or job.instruction,
+           "negative": job.negative, "seed": job.seed, "steps": job.steps, "guidance": job.guidance,
+           "width": job.width, "height": job.height, "resolution": job.resolution,
            "n_images": job.n_images, "elapsed_s": round(job.elapsed_s, 2), "status": job.status,
+           "rewritten": (job.result or {}).get("rewritten_prompt") if job.kind == "rewrite" else None,
            "error": (job.error or "").splitlines()[-1] if job.error else None}
     log.info("JOB %s", json.dumps(rec))
     try:
@@ -144,9 +157,14 @@ def _run_job(job: Job) -> None:
         job.elapsed_s = time.time() - t0
 
     try:
-        img = engine.edit(job.images, job.prompt, job.negative, job.steps, job.guidance, job.seed,
-                          job.width, job.height, progress)
-        job.png = to_png_bytes(img)
+        if job.kind == "rewrite":
+            if rewriter is None or not state["rewriter_loaded"]:
+                raise RuntimeError("rewriter not loaded on this pod")
+            job.result = rewriter.rewrite(job.images, job.instruction)
+        else:
+            img = engine.edit(job.images, job.prompt, job.negative, job.steps, job.guidance, job.seed,
+                              job.width, job.height, progress, resolution=job.resolution)
+            job.png = to_png_bytes(img)
         job.status = "done"
         job.progress = 1.0
     except Exception:  # noqa: BLE001 - keep the worker alive no matter what
@@ -172,10 +190,27 @@ def _warmup() -> None:
     log.info("warmup edit starting")
     t0 = time.time()
     blank = Image.new("RGB", (512, 512), (128, 128, 128))
-    w, h = parse_size(None, 512, 512)
-    engine.edit([blank], "add a small red circle in the centre", config.DEFAULT_NEGATIVE, config.DEFAULT_STEPS,
-                config.DEFAULT_GUIDANCE, 0, w, h, lambda p: None)
+    res = min(config.DEFAULT_RESOLUTION, 1024)
+    w, h = parse_size(None, 512, 512, res)
+    engine.edit([blank], "add a small red circle in the centre", config.DEFAULT_NEGATIVE, min(config.DEFAULT_STEPS, 8),
+                config.DEFAULT_GUIDANCE, 0, w, h, lambda p: None, resolution=res)
     log.info("warmup done in %.1fs", time.time() - t0)
+
+
+def _load_rewriter() -> None:
+    """Best effort: a broken rewriter must not take the editor down."""
+    if rewriter is None:
+        return
+    try:
+        rewriter.load()
+        if config.WARMUP:
+            t0 = time.time()
+            rewriter.rewrite([Image.new("RGB", (256, 256), (128, 128, 128))], "make it blue")
+            log.info("rewriter warmup done in %.1fs", time.time() - t0)
+        state["rewriter_loaded"] = True
+    except Exception:  # noqa: BLE001
+        state["rewriter_error"] = traceback.format_exc()
+        log.exception("REWRITER LOAD FAILED - editing still works; /health reports rewriter_loaded=false")
 
 
 def worker() -> None:
@@ -183,6 +218,7 @@ def worker() -> None:
         engine.load()
         _warmup()
         state["model_loaded"] = True
+        _load_rewriter()
     except Exception:  # noqa: BLE001
         state["load_error"] = traceback.format_exc()
         log.exception("MODEL LOAD FAILED - server stays up so /health can report it")
@@ -240,12 +276,18 @@ def health() -> dict:
         "capability": info.get("capability"),
         "quant": info.get("quant"),
         "model": config.MODEL_ID,
+        "pipeline": config.PIPELINE,
         "lora": info.get("lora"),
+        "rewriter_loaded": state["rewriter_loaded"],
+        "rewriter": (rewriter.info if rewriter is not None else None),
+        "rewriter_error": (state.get("rewriter_error") or "")[-400:] or None,
         "vram_used_gb": engine.vram_used_gb(),
         "vram_total_gb": info.get("vram_total_gb"),
         "queue_depth": store.depth(),
         "uptime_s": round(time.time() - state["started_at"], 1),
-        "defaults": {"steps": config.DEFAULT_STEPS, "guidance": config.DEFAULT_GUIDANCE, "max_side": config.MAX_SIDE},
+        "defaults": {"steps": config.DEFAULT_STEPS, "guidance": config.DEFAULT_GUIDANCE, "max_side": config.MAX_SIDE,
+                     "resolution": config.DEFAULT_RESOLUTION, "max_resolution": config.MAX_RESOLUTION,
+                     "max_steps": config.MAX_STEPS},
     }
 
 
@@ -271,6 +313,7 @@ async def edit(
     guidance: Optional[float] = Form(None),
     seed: Optional[int] = Form(None),
     size: Optional[str] = Form(None),
+    resolution: Optional[str] = Form(None),
 ) -> dict:
     if not prompt.strip():
         raise HTTPException(400, "prompt is empty")
@@ -278,7 +321,8 @@ async def edit(
     if image2 is not None and image2.filename:
         imgs.append(await _read_image(image2))
     try:
-        w, h = parse_size(size, imgs[0].width, imgs[0].height)
+        res = parse_resolution(resolution)
+        w, h = parse_size(size, imgs[0].width, imgs[0].height, res)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     s = int(steps) if steps is not None else config.DEFAULT_STEPS
@@ -289,9 +333,28 @@ async def edit(
         seed = random.randint(0, 2**31 - 1)
     job = Job(id=uuid.uuid4().hex[:12], seed=int(seed), images=imgs, n_images=len(imgs), prompt=prompt.strip(),
               negative=(negative if negative is not None else config.DEFAULT_NEGATIVE),
-              steps=s, guidance=g, width=w, height=h)
+              steps=s, guidance=g, width=w, height=h, resolution=res)
     store.add(job)
-    return {"job_id": job.id, "seed": job.seed, "width": w, "height": h}
+    return {"job_id": job.id, "seed": job.seed, "width": w, "height": h, "resolution": res}
+
+
+@app.post("/rewrite", status_code=202, dependencies=[Depends(require_token)])
+async def rewrite(
+    image: UploadFile = File(...),
+    instruction: str = Form(...),
+    image2: Optional[UploadFile] = File(None),
+) -> dict:
+    if rewriter is None:
+        raise HTTPException(501, "rewriter disabled on this pod (PE_ENABLED=0)")
+    if not instruction.strip():
+        raise HTTPException(400, "instruction is empty")
+    imgs = [await _read_image(image)]
+    if image2 is not None and image2.filename:
+        imgs.append(await _read_image(image2))
+    job = Job(id=uuid.uuid4().hex[:12], kind="rewrite", images=imgs, n_images=len(imgs), instruction=instruction.strip(),
+              width=imgs[0].width, height=imgs[0].height)
+    store.add(job)
+    return {"job_id": job.id}
 
 
 @app.get("/jobs/{job_id}", dependencies=[Depends(require_token)])

@@ -38,6 +38,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   edits       INTEGER NOT NULL DEFAULT 0
 );
 `);
+// v3 (2026-09-21): generation resolution for the qwen_image_21 pipeline. Older DBs lack the column.
+try {
+  db.exec("ALTER TABLE nodes ADD COLUMN resolution INTEGER");
+} catch {
+  /* already there */
+}
 
 export interface NodeRow {
   id: string;
@@ -50,6 +56,7 @@ export interface NodeRow {
   guidance: number | null;
   width: number | null;
   height: number | null;
+  resolution: number | null; // qwen_image_21: generation pixel budget (resolution^2); null = pod default
   ref_node_id: string | null;
   image_path: string | null;
   status: "queued" | "running" | "done" | "error";
@@ -61,7 +68,7 @@ export interface NodeRow {
 }
 
 const COLS =
-  "id,parent_id,kind,prompt,negative,seed,steps,guidance,width,height,ref_node_id,image_path,status,progress,error,job_id,elapsed_s,created_at";
+  "id,parent_id,kind,prompt,negative,seed,steps,guidance,width,height,resolution,ref_node_id,image_path,status,progress,error,job_id,elapsed_s,created_at";
 
 export function allNodes(): NodeRow[] {
   return db.prepare(`SELECT ${COLS} FROM nodes ORDER BY created_at ASC`).all() as unknown as NodeRow[];
@@ -71,12 +78,14 @@ export function getNode(id: string): NodeRow | undefined {
   return db.prepare(`SELECT ${COLS} FROM nodes WHERE id = ?`).get(id) as unknown as NodeRow | undefined;
 }
 
-export function insertNode(n: Omit<NodeRow, "created_at" | "progress" | "error" | "job_id" | "elapsed_s"> & Partial<NodeRow>) {
+export function insertNode(
+  n: Omit<NodeRow, "created_at" | "progress" | "error" | "job_id" | "elapsed_s" | "resolution"> & Partial<NodeRow>,
+) {
   db.prepare(
-    `INSERT INTO nodes (id,parent_id,kind,prompt,negative,seed,steps,guidance,width,height,ref_node_id,image_path,status,progress,error,job_id,elapsed_s)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO nodes (id,parent_id,kind,prompt,negative,seed,steps,guidance,width,height,resolution,ref_node_id,image_path,status,progress,error,job_id,elapsed_s)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
-    n.id, n.parent_id, n.kind, n.prompt, n.negative, n.seed, n.steps, n.guidance, n.width, n.height,
+    n.id, n.parent_id, n.kind, n.prompt, n.negative, n.seed, n.steps, n.guidance, n.width, n.height, n.resolution ?? null,
     n.ref_node_id, n.image_path, n.status, n.progress ?? 0, n.error ?? null, n.job_id ?? null, n.elapsed_s ?? null,
   );
   return getNode(n.id)!;

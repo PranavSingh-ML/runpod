@@ -11,15 +11,17 @@ interface Props {
   onSubmit: (prompt: string) => Promise<void> | void;
   onFlash: (m: string) => void;
   ready: boolean;
+  podRewriter: boolean; // v3 pod has PE-I2I loaded (sees the image); else Claude text-only needs a key
 }
 
-export function Composer({ active, settings, refNode, onClearRef, onAttachRef, onSubmit, onFlash, ready }: Props) {
+export function Composer({ active, settings, refNode, onClearRef, onAttachRef, onSubmit, onFlash, ready, podRewriter }: Props) {
   const [text, setText] = useState("");
   const [rewriting, setRewriting] = useState(false);
   const [rewritten, setRewritten] = useState<string | null>(null);
+  const [rewriteSource, setRewriteSource] = useState<"pod" | "claude" | null>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const canSend = !!active && active.status === "done" && text.trim().length > 0;
-  const rewriterOn = !!settings?.rewriteEnabled && !!settings?.hasAnthropicKey;
+  const rewriterOn = !!settings?.rewriteEnabled && (podRewriter || !!settings?.hasAnthropicKey);
 
   useEffect(() => {
     ta.current?.focus();
@@ -39,6 +41,7 @@ export function Composer({ active, settings, refNode, onClearRef, onAttachRef, o
     try {
       const r = await api.rewrite(active.id, text.trim());
       setRewritten(text);
+      setRewriteSource(r.source);
       setText(r.instruction); // shown for editing; never auto-sent
       ta.current?.focus();
     } catch (e: any) {
@@ -61,7 +64,7 @@ export function Composer({ active, settings, refNode, onClearRef, onAttachRef, o
       )}
       {rewritten !== null && (
         <div className="rewrote">
-          rewritten from “{rewritten}” — edit if needed, then send
+          {rewriteSource === "pod" ? "enhanced by the pod's rewriter (it saw the image)" : "rewritten by Claude"} from “{rewritten}” — edit if needed, then send
           <button
             className="link"
             onClick={() => {
@@ -100,8 +103,17 @@ export function Composer({ active, settings, refNode, onClearRef, onAttachRef, o
             Send
           </button>
           {rewriterOn && (
-            <button className="btn" disabled={!canSend || rewriting} onClick={() => void rewrite()} title="Rewrite into a precise edit instruction (shown before sending)">
-              {rewriting ? "…" : "Rewrite"}
+            <button
+              className="btn"
+              disabled={!canSend || rewriting}
+              onClick={() => void rewrite()}
+              title={
+                podRewriter
+                  ? "Enhance on the pod: PE-I2I looks at the image and writes a detailed, creative edit instruction (shown before sending; ~10-30s)"
+                  : "Rewrite into a precise edit instruction with Claude (shown before sending)"
+              }
+            >
+              {rewriting ? "…" : podRewriter ? "Enhance" : "Rewrite"}
             </button>
           )}
           <label className="btn small" title="Attach a second reference image (multi-image edit)">

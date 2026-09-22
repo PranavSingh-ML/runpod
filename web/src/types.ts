@@ -9,6 +9,7 @@ export interface NodeRow {
   guidance: number | null;
   width: number | null;
   height: number | null;
+  resolution: number | null;
   ref_node_id: string | null;
   image_path: string | null;
   status: "queued" | "running" | "done" | "error";
@@ -29,11 +30,14 @@ export interface Status {
     capability: number[] | null;
     quant: string | null;
     model: string | null;
+    pipeline: string | null; // qwen_image_21 (v3) | qwen_edit_plus (v2) | null (unknown / old pod)
     lora: string | null;
+    rewriterLoaded: boolean;
+    rewriterError: string | null;
     vramUsedGb: number | null;
     vramTotalGb: number | null;
     queueDepth: number;
-    defaults: { steps: number; guidance: number; max_side: number } | null;
+    defaults: { steps: number; guidance: number; max_side: number; resolution?: number; max_resolution?: number; max_steps?: number } | null;
     lastError: string | null;
   };
   session: {
@@ -85,5 +89,7 @@ export interface Params {
   steps: number;
   guidance: number;
   seed: number; // -1 = random
-  longSide: number; // 0 = match input (pod default)
+  longSide: number; // v2 (qwen_edit_plus): post-resize long side; 0 = match input (pod default)
+  resolution: number; // v3 (qwen_image_21): generation budget 1024/1536/2048; 0 = pod default
+  pipeline?: string; // which pod pipeline steps/guidance were last defaulted from
 }

@@ -208,6 +208,7 @@ export interface EditRequest {
   guidance?: number | null;
   seed?: number | null; // -1 / null = random
   size?: string | null;
+  resolution?: number | null; // qwen_image_21 generation budget; null = pod default
   refNodeId?: string | null;
 }
 
@@ -234,6 +235,7 @@ export function createEdit(req: EditRequest): db.NodeRow {
     guidance: req.guidance ?? null,
     width: m ? Number(m[1]) : null,
     height: m ? Number(m[2]) : null,
+    resolution: req.resolution && req.resolution > 0 ? Math.floor(req.resolution) : null,
     ref_node_id: req.refNodeId ?? null,
     image_path: null,
     status: "queued",
@@ -267,6 +269,7 @@ async function runEdit(nodeId: string) {
         guidance: node.guidance,
         seed: node.seed ?? -1,
         size: sizeFor(node),
+        resolution: node.resolution,
       });
       db.updateNode(nodeId, { job_id: r.job_id, seed: r.seed, width: r.width, height: r.height, status: "queued" });
       node = db.getNode(nodeId)!;

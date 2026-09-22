@@ -54,7 +54,10 @@ app.get("/api/status", (_req, res) => {
       capability: h?.capability ?? null,
       quant: h?.quant ?? null,
       model: h?.model ?? null,
+      pipeline: h?.pipeline ?? null,
       lora: h?.lora ?? null,
+      rewriterLoaded: !!h?.rewriter_loaded,
+      rewriterError: h?.rewriter_error ?? null,
       vramUsedGb: h?.vram_used_gb ?? null,
       vramTotalGb: h?.vram_total_gb ?? null,
       queueDepth: h?.queue_depth ?? 0,
@@ -156,6 +159,7 @@ app.post(
       guidance: Number.isFinite(b.guidance) ? Number(b.guidance) : null,
       seed: Number.isFinite(b.seed) ? Number(b.seed) : null,
       size: typeof b.size === "string" ? b.size : null,
+      resolution: Number.isFinite(b.resolution) && Number(b.resolution) > 0 ? Number(b.resolution) : null,
       refNodeId: typeof b.refNodeId === "string" ? b.refNodeId : null,
     });
     res.status(202).json(node);
@@ -193,7 +197,7 @@ app.post(
   wrap(async (req, res) => {
     const { parentId, message } = req.body ?? {};
     if (typeof parentId !== "string" || typeof message !== "string") return res.status(400).json({ error: "bad request" });
-    res.json({ instruction: await rewritePrompt(parentId, message) });
+    res.json(await rewritePrompt(parentId, message));
   }),
 );
 

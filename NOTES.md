@@ -31,6 +31,19 @@ taken inside the `v0` image on the Phase 0 pod (59 pinned packages; torch layer 
 built from it. Notable resolved transitive pins: peft 0.21.0, safetensors 0.8.0, huggingface_hub 1.32.0,
 tokenizers 0.23.2, numpy 2.5.2, pydantic 2.13.5.
 
+## v3 pins (VERIFIED 2026-09-21, from the laptop — NOT yet run on a GPU)
+
+| Item | Value | Source |
+|---|---|---|
+| Model | `Qwen/Qwen-Image-2.1` @ `790c92633540aa0cb11d9abf19eb46d861714758`, Qwen Research License (non-commercial), not gated. 7B DiT + Qwen3-VL 8B text encoder + 16× VAE ≈ 33 GB bf16 | HF API |
+| Rewriter | `Qwen/Qwen-Image-2.1-PE-I2I` @ `72927bc08afc99b7888ceb7d7d51a12db3700bbd` — Qwen3.5-VL 9B fine-tune, 18.8 GB bf16, ships `system_prompt.txt`; recipe: chat template, `enable_thinking=True`, do_sample T=1.0 top_p 0.95 top_k 20, JSON `{rewritten_prompt, wh_ratio, ratio_follow}` after `</think>` | model card |
+| diffusers | **git pin** `cc8644b447d8f11074d3df06d0ee0e3e7c91bf75` (main, 2026-09-21). `QwenImage21Pipeline` landed in #14804 on 2026-09-18 and is in no release (latest 0.40.0). Dockerfile installs `git` for this. Move to a PyPI pin at the next release. | GitHub API |
+| Pipeline call | `QwenImage21Pipeline(image=[...], prompt, negative_prompt?, true_cfg_scale=1.0, num_inference_steps=40, width, height, output_resolution, generator, callback_on_step_end)`; dims = `calculate_dimensions(res², aspect)` rounded to 32; condition images are resized to the same budget | pipeline source at the pinned SHA |
+| transformers | 5.17.0 unchanged: has `Qwen3VLForConditionalGeneration` (text encoder) and `Qwen3_5ForConditionalGeneration` (rewriter; pure-torch fallback for the linear-attention path, no compiled kernels needed) | source at v5.17.0 |
+| VRAM plan (48 GB) | DiT bf16 14 + text encoder fp8 ~9 + VAE 1.4 + rewriter fp8 ~9.5 ≈ 35 GB steady; `QUANT=auto` → bf16 DiT for 2.1, fp8_layerwise for 2511 | arithmetic — **TODO(pod)** measure |
+| Lock file | `server/requirements.lock.txt` is the 2026-09-17 freeze with only diffusers re-pinned → PROVISIONAL. Phase 0 on the `v3` image re-freezes it. | — |
+| Timings | **TODO(pod)**: 40-step 1024² and 2048² edit, rewriter load + rewrite latency (thinking on/off), cold boot with 52 GB of weights | phase0_report.json |
+
 ## Hardware / pricing (VERIFIED 2026-09-17, runpod.io/pricing — these move)
 
 | GPU | Secure | Community | Hours on $13 (Secure) |

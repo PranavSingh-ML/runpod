@@ -24,6 +24,10 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
   const state = !pod?.configured ? "unset" : !pod.reachable ? "disconnected" : pod.loadError ? "load-error" : !pod.modelLoaded ? "loading" : "ready";
   const label = { unset: "no pod URL", disconnected: "disconnected", "load-error": "model failed", loading: "loading model…", ready: "ready" }[state];
   const set = (patch: Partial<Params>) => onParams({ ...params, ...patch });
+  const v21 = pod?.pipeline === "qwen_image_21";
+  const d = pod?.defaults;
+  const maxSteps = d?.max_steps ?? (v21 ? 60 : 40);
+  const maxRes = d?.max_resolution ?? 2048;
 
   return (
     <div className="inspector">
@@ -44,7 +48,12 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
           <div className="small dim">
             VRAM {pod.vramUsedGb.toFixed(1)}{pod.vramTotalGb ? ` / ${pod.vramTotalGb}` : ""} GB · queue {pod.queueDepth}
             {pod.lora ? " · lightning" : ""}
+            {pod.pipeline ? ` · ${pod.pipeline === "qwen_image_21" ? "Qwen-Image-2.1" : pod.pipeline === "qwen_edit_plus" ? "Edit-2511" : pod.pipeline}` : ""}
+            {pod.pipeline === "qwen_image_21" ? (pod.rewriterLoaded ? " · rewriter ✓" : " · rewriter ✗") : ""}
           </div>
+        )}
+        {pod?.reachable && pod.modelLoaded && pod.pipeline === "qwen_image_21" && !pod.rewriterLoaded && pod.rewriterError && (
+          <pre className="small err">rewriter: {pod.rewriterError}</pre>
         )}
         {state === "disconnected" && pod?.lastError && <div className="small err">{pod.lastError}</div>}
         {state === "load-error" && <pre className="small err">{pod?.loadError}</pre>}
@@ -75,13 +84,15 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
         <h3>Generation</h3>
         <label>
           steps <span className="val">{params.steps}</span>
-          <input type="range" min={1} max={40} value={params.steps} onChange={(e) => set({ steps: Number(e.target.value) })} />
-          <span className="hint">8 for the Lightning LoRA. 20–40 only if LORA_ENABLED=0 on the pod.</span>
+          <input type="range" min={1} max={maxSteps} value={params.steps} onChange={(e) => set({ steps: Number(e.target.value) })} />
+          <span className="hint">
+            {v21 ? "Qwen-Image-2.1 has no Lightning LoRA yet: 40 is the model default, 20-30 for quicker drafts." : "8 for the Lightning LoRA. 20–40 only if LORA_ENABLED=0 on the pod."}
+          </span>
         </label>
         <label>
           guidance (true_cfg) <span className="val">{params.guidance.toFixed(1)}</span>
           <input type="range" min={1} max={8} step={0.5} value={params.guidance} onChange={(e) => set({ guidance: Number(e.target.value) })} />
-          <span className="hint">1.0 with Lightning (also 2× faster). ~4.0 for the base model.</span>
+          <span className="hint">{v21 ? "Qwen-Image-2.1 is sampled without guidance: keep 1.0 (>1 doubles the time)." : "1.0 with Lightning (also 2× faster). ~4.0 for the base model."}</span>
         </label>
         <label>
           seed
@@ -103,13 +114,22 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
         </label>
         <label>
           resolution
-          <select value={params.longSide} onChange={(e) => set({ longSide: Number(e.target.value) })}>
-            <option value={0}>match input (long side ≤ {pod?.defaults?.max_side ?? 1024})</option>
-            <option value={768}>768 long side (fast)</option>
-            <option value={1024}>1024 long side</option>
-            <option value={1280}>1280 long side</option>
-            <option value={1536}>1536 long side (slow)</option>
-          </select>
+          {v21 ? (
+            <select value={params.resolution} onChange={(e) => set({ resolution: Number(e.target.value) })}>
+              <option value={0}>pod default ({d?.resolution ?? 1024}² px, input aspect)</option>
+              <option value={1024}>1024² ≈ 1 MP (draft)</option>
+              {maxRes >= 1536 && <option value={1536}>1536² ≈ 2.4 MP</option>}
+              {maxRes >= 2048 && <option value={2048}>2048² ≈ 4 MP (native 2K, ~4× slower)</option>}
+            </select>
+          ) : (
+            <select value={params.longSide} onChange={(e) => set({ longSide: Number(e.target.value) })}>
+              <option value={0}>match input (long side ≤ {pod?.defaults?.max_side ?? 1024})</option>
+              <option value={768}>768 long side (fast)</option>
+              <option value={1024}>1024 long side</option>
+              <option value={1280}>1280 long side</option>
+              <option value={1536}>1536 long side (slow)</option>
+            </select>
+          )}
           {active?.width && active.height && (
             <span className="hint">
               active source {active.width}×{active.height}
@@ -118,7 +138,7 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
         </label>
       </section>
 
-      <SettingsPanel settings={settings} onSettings={onSettings} onFlash={onFlash} />
+      <SettingsPanel settings={settings} onSettings={onSettings} onFlash={onFlash} podRewriter={!!pod?.rewriterLoaded} />
 
       <section className="small dim">
         <p>The pod is disposable: every image is already in <code>data/images/</code>.</p>
@@ -130,7 +150,17 @@ export function Inspector({ status, settings, onSettings, params, onParams, acti
   );
 }
 
-function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSettings | null; onSettings: (s: PublicSettings) => void; onFlash: (m: string) => void }) {
+function SettingsPanel({
+  settings,
+  onSettings,
+  onFlash,
+  podRewriter,
+}: {
+  settings: PublicSettings | null;
+  onSettings: (s: PublicSettings) => void;
+  onFlash: (m: string) => void;
+  podRewriter: boolean;
+}) {
   const [open, setOpen] = useState(!settings?.podUrl);
   const [podUrl, setPodUrl] = useState(settings?.podUrl ?? "");
   const [token, setToken] = useState("");
@@ -200,12 +230,12 @@ function SettingsPanel({ settings, onSettings, onFlash }: { settings: PublicSett
             <span className="hint">A40 Secure $0.49 · A40 Community $0.35 · L40S $1.09 (RunPod, 2026-09-17)</span>
           </label>
           <label>
-            Anthropic API key (optional, prompt rewriter) {settings?.hasAnthropicKey && <span className="dim">(set: {settings.anthropicKeyMasked})</span>}
+            Anthropic API key (optional: text-only rewriter for v2 pods / fallback) {settings?.hasAnthropicKey && <span className="dim">(set: {settings.anthropicKeyMasked})</span>}
             <input type="password" placeholder={settings?.hasAnthropicKey ? "leave blank to keep" : "sk-ant-…"} value={key} onChange={(e) => setKey(e.target.value)} />
           </label>
           <label className="row">
-            <input type="checkbox" checked={rewrite} onChange={(e) => setRewrite(e.target.checked)} disabled={!settings?.hasAnthropicKey && !key} />
-            enable “Rewrite” button
+            <input type="checkbox" checked={rewrite} onChange={(e) => setRewrite(e.target.checked)} disabled={!settings?.hasAnthropicKey && !key && !podRewriter} />
+            enable the “Enhance / Rewrite” button {podRewriter ? "(pod rewriter loaded)" : ""}
           </label>
           <label>
             auto-stop the pod after (idle minutes, 0 = off)
@@ -256,7 +286,7 @@ function PodPanel({ status, onFlash }: { status: Status | null; onFlash: (m: str
   const busy = pending || !!c.busy;
   const running = c.pods.length > 0;
   const phase = !pod?.reachable
-    ? "booting - image pull + 58 GB of weights, ~6-12 min"
+    ? "booting - image pull + weights (v3 ≈ 52 GB, v2 58 GB), ~6-12 min"
     : pod.loadError
       ? "model failed to load - stop the pod"
       : !pod.modelLoaded

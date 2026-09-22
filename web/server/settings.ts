@@ -27,7 +27,7 @@ const defaults: Settings = {
   POD_RATE_USD_HR: 0.49, // A40 Secure Cloud, verified 2026-09-17
   REWRITE_ENABLED: false,
   AUTO_STOP_MIN: 20,
-  POD_IMAGE: "ghcr.io/pranavsingh-ml/imgedit:v2",
+  POD_IMAGE: "ghcr.io/pranavsingh-ml/imgedit:v3", // v3 = Qwen-Image-2.1 + PE-I2I rewriter; :v2 = Qwen-Image-Edit-2511 (Lightning)
 };
 
 function parseEnv(text: string): Record<string, string> {

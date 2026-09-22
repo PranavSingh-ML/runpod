@@ -10,15 +10,20 @@ export interface Health {
   capability: number[] | null;
   quant: string | null;
   model: string;
+  pipeline?: string; // qwen_image_21 (v3) | qwen_edit_plus (v2) | flux_kontext; absent on v2 pods
   lora: string | null;
+  rewriter_loaded?: boolean; // v3: Qwen-Image-2.1-PE-I2I next to the editor
+  rewriter?: { model: string; quant?: string; load_s?: number } | null;
+  rewriter_error?: string | null;
   vram_used_gb: number;
   vram_total_gb: number | null;
   queue_depth: number;
   uptime_s: number;
-  defaults: { steps: number; guidance: number; max_side: number };
+  defaults: { steps: number; guidance: number; max_side: number; resolution?: number; max_resolution?: number; max_steps?: number };
 }
 
 export interface JobStatus {
+  kind?: "edit" | "rewrite";
   status: "queued" | "running" | "done" | "error";
   progress: number;
   seed: number;
@@ -28,6 +33,8 @@ export interface JobStatus {
   height: number;
   steps: number;
   guidance: number;
+  resolution?: number;
+  result?: { rewritten_prompt: string; wh_ratio?: string; ratio_follow?: string; thinking?: string } | null;
 }
 
 export class PodError extends Error {
@@ -66,6 +73,7 @@ export interface EditParams {
   guidance?: number | null;
   seed?: number | null;
   size?: string | null;
+  resolution?: number | null; // qwen_image_21 only; ignored by v2 pods
 }
 
 export async function submitEdit(image: Buffer, image2: Buffer | null, p: EditParams) {
@@ -78,9 +86,21 @@ export async function submitEdit(image: Buffer, image2: Buffer | null, p: EditPa
   if (p.guidance != null) fd.append("guidance", String(p.guidance));
   if (p.seed != null) fd.append("seed", String(p.seed));
   if (p.size) fd.append("size", p.size);
+  if (p.resolution != null && p.resolution > 0) fd.append("resolution", String(p.resolution));
   const res = await call("/edit", { method: "POST", body: fd }, 60_000);
   if (res.status !== 202) throw new PodError(`edit ${res.status}: ${(await res.text()).slice(0, 300)}`, res.status);
-  return (await res.json()) as { job_id: string; seed: number; width: number; height: number };
+  return (await res.json()) as { job_id: string; seed: number; width: number; height: number; resolution?: number };
+}
+
+// v3: the pod's own vision rewriter (PE-I2I). Same job model as /edit; result arrives in jobStatus().result.
+export async function submitRewrite(image: Buffer, image2: Buffer | null, instruction: string) {
+  const fd = new FormData();
+  fd.append("image", new Blob([new Uint8Array(image)], { type: "image/png" }), "image.png");
+  if (image2) fd.append("image2", new Blob([new Uint8Array(image2)], { type: "image/png" }), "image2.png");
+  fd.append("instruction", instruction);
+  const res = await call("/rewrite", { method: "POST", body: fd }, 60_000);
+  if (res.status !== 202) throw new PodError(`rewrite ${res.status}: ${(await res.text()).slice(0, 300)}`, res.status);
+  return (await res.json()) as { job_id: string };
 }
 
 export async function jobStatus(jobId: string): Promise<JobStatus> {

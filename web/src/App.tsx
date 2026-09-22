@@ -11,12 +11,14 @@ const LS_PARAMS = "imgedit.params";
 function loadParams(): Params {
   try {
     const p = JSON.parse(localStorage.getItem(LS_PARAMS) ?? "");
-    if (p && typeof p.steps === "number") return p;
+    if (p && typeof p.steps === "number") return { resolution: 0, ...p };
   } catch {
     /* ignore */
   }
-  return { steps: 8, guidance: 1.0, seed: -1, longSide: 0 };
+  return { steps: 8, guidance: 1.0, seed: -1, longSide: 0, resolution: 0 };
 }
+
+const IS_V21 = (s: Status | null) => s?.pod.pipeline === "qwen_image_21";
 
 export default function App() {
   const [nodes, setNodes] = useState<NodeRow[]>([]);
@@ -52,6 +54,15 @@ export default function App() {
     api.settings().then(setSettings).catch(() => {});
     api.status().then(setStatus).catch(() => {});
   }, [refreshNodes]);
+
+  // A different pod pipeline (v2 Lightning: 8 steps / cfg 1; v3 Qwen-Image-2.1: 40 steps / cfg 1)
+  // wants different steps/guidance: adopt the pod's defaults once per pipeline switch.
+  useEffect(() => {
+    const pl = status?.pod.pipeline;
+    const d = status?.pod.defaults;
+    if (!pl || !d || params.pipeline === pl) return;
+    setParams({ ...params, steps: d.steps, guidance: d.guidance, pipeline: pl });
+  }, [status?.pod.pipeline, status?.pod.defaults, params]);
 
   // nodes: 1s while something is running, else 5s
   useEffect(() => {
@@ -135,7 +146,9 @@ export default function App() {
           steps: params.steps,
           guidance: params.guidance,
           seed: opts?.seed ?? params.seed,
-          size: sizeFor(parent),
+          // v3 sizes itself from `resolution`; the long-side post-resize is a v2 control
+          size: IS_V21(status) ? null : sizeFor(parent),
+          resolution: IS_V21(status) && params.resolution > 0 ? params.resolution : null,
           refNodeId: refNode?.id ?? null,
         });
         setRefNode(null);
@@ -145,7 +158,7 @@ export default function App() {
         flash(`edit failed: ${e.message}`);
       }
     },
-    [activeId, byId, params, sizeFor, refNode, refreshNodes, flash],
+    [activeId, byId, params, sizeFor, refNode, refreshNodes, flash, status],
   );
 
   const reroll = useCallback(
@@ -285,6 +298,7 @@ export default function App() {
           onSubmit={submitEdit}
           onFlash={flash}
           ready={!!status?.pod.modelLoaded}
+          podRewriter={!!status?.pod.rewriterLoaded}
         />
       </main>
 

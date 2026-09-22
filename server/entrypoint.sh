@@ -5,7 +5,7 @@
 #  - otherwise -> the API server, bound to 0.0.0.0 (127.0.0.1 is invisible to the RunPod proxy).
 set -u
 # sshd sessions do not inherit Docker ENV; export the container env for PAM/login shells.
-env | grep -E '^(PATH|HF_|PYTORCH|API_TOKEN|MODEL|LORA|QUANT|PORT|TOKENIZERS|PHASE0|DEFAULT_|MAX_SIDE|MIN_SIDE|PIPELINE|LOG_PATH)' > /etc/environment
+env | grep -E '^(PATH|HF_|PYTORCH|API_TOKEN|MODEL|LORA|QUANT|PE_|PORT|TOKENIZERS|PHASE0|DEFAULT_|MAX_|MIN_|PIPELINE|LOG_PATH|WARMUP|TEXT_ENCODER)' > /etc/environment
 { echo 'set -a; . /etc/environment; set +a'; } > /etc/profile.d/10-container-env.sh
 if [ -n "${PUBLIC_KEY:-}" ]; then
   mkdir -p /root/.ssh && chmod 700 /root/.ssh

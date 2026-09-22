@@ -18,7 +18,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Python 3.12 (Ubuntu 24.04 default) + sshd for Phase 0 / emergencies. Nothing else.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-venv python3-pip openssh-server ca-certificates curl \
+      python3 python3-venv python3-pip openssh-server ca-certificates curl git \
  && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /run/sshd /workspace /app \
  && python3 -m venv /opt/venv \
@@ -33,6 +33,7 @@ RUN pip install --index-url https://download.pytorch.org/whl/cu129 \
 WORKDIR /app
 
 # Zero interactive pip on the pod: everything is baked here, from the frozen lock file.
+# (git is installed above because diffusers is pinned to a git commit until 2.1 ships in a release.)
 # The lock never lists torch/torchvision/nvidia-*/triton (phase0_probe strips them) -
 # those come from the layer above.
 COPY requirements.lock.txt /app/requirements.lock.txt
@@ -41,8 +42,9 @@ RUN pip install -r /app/requirements.lock.txt \
 import torch, diffusers, transformers
 print("torch", torch.__version__, "cuda", torch.version.cuda)
 print("diffusers", diffusers.__version__, "transformers", transformers.__version__)
-from diffusers import QwenImageEditPlusPipeline, QwenImageTransformer2DModel  # fail the build early if missing
+from diffusers import QwenImage21Pipeline, QwenImageEditPlusPipeline              # v3 + v2 pipelines; fail the build early if missing
 from diffusers.hooks import apply_layerwise_casting                               # fp8_layerwise path
+from transformers import Qwen3VLForConditionalGeneration, Qwen3_5ForConditionalGeneration  # 2.1 text encoder + PE-I2I rewriter
 import peft; print("peft", peft.__version__)
 try:
     import bitsandbytes; print("bitsandbytes", bitsandbytes.__version__, "(optional, nf4 path)")
@@ -50,7 +52,7 @@ except Exception as e:  # optional path - warn, don't fail the build
     print("WARNING bitsandbytes import failed (nf4 path unavailable):", e)
 PY
 
-COPY config.py pipeline.py app.py phase0_probe.py entrypoint.sh /app/
+COPY config.py pipeline.py rewriter.py app.py phase0_probe.py entrypoint.sh /app/
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 8000 22

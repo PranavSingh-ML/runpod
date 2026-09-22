@@ -1,8 +1,11 @@
-# Top-level dependencies, pinned to the versions verified on PyPI on 2026-09-17.
+# Top-level dependencies, pinned to the versions verified on PyPI on 2026-09-17 (diffusers re-pinned 2026-09-21).
 # torch/torchvision come from the Dockerfile torch layer (cu129 index) and are NOT listed here.
 # requirements.lock.txt is derived from this by Phase 0 (pip freeze inside the v0 image).
-diffusers==0.40.0          # has QwenImageEditPlusPipeline + zero_cond_t (2511). Released 2026-08-20. No git SHA needed.
-transformers==5.17.0
+# v3: Qwen-Image-2.1 (QwenImage21Pipeline) landed in diffusers main on 2026-09-18 (#14804) and is in no
+# release yet -> git pin to main HEAD of 2026-09-21. The 2511 pipeline is still there. Move back to a
+# PyPI pin (>= the next release after 0.40) once it ships.
+diffusers @ git+https://github.com/huggingface/diffusers@cc8644b447d8f11074d3df06d0ee0e3e7c91bf75
+transformers==5.17.0       # Qwen3-VL text encoder (>=5.17 per the 2.1 model card) and Qwen3.5-VL rewriter (>=5.4)
 accelerate==1.15.0
 safetensors>=0.5
 peft>=0.17                 # LoRA loading / fuse_lora

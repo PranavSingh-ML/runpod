@@ -42,6 +42,7 @@ export const api = {
     guidance?: number;
     seed?: number;
     size?: string | null;
+    resolution?: number | null;
     refNodeId?: string | null;
   }) =>
     fetch("/api/edit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) =>
@@ -51,7 +52,7 @@ export const api = {
   remove: (id: string) => fetch(`/api/nodes/${id}`, { method: "DELETE" }).then((r) => j<{ deleted: string[] }>(r)),
   rewrite: (parentId: string, message: string) =>
     fetch("/api/rewrite", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ parentId, message }) }).then(
-      (r) => j<{ instruction: string }>(r),
+      (r) => j<{ instruction: string; source: "pod" | "claude"; thinking?: string }>(r),
     ),
   imageUrl: (id: string) => `/api/images/${id}`,
 };

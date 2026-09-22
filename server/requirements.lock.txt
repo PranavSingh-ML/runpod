@@ -1,4 +1,4 @@
-# Frozen by phase0_probe.py on 2026-09-17 19:38:14 UTC
+# PROVISIONAL for v3 (2026-09-21): the 2026-09-17 freeze with diffusers re-pinned to git main for Qwen-Image-2.1. Re-run Phase 0 to re-freeze.
 # inside imgedit image (python 3.12.3, torch 2.9.1+cu129 cuda 12.9), GPU NVIDIA RTX A6000 cap (8, 6)
 # torch/torchvision/triton/nvidia-* come from the Dockerfile torch layer and are intentionally omitted.
 accelerate==1.15.0
@@ -9,7 +9,7 @@ bitsandbytes==0.50.2
 certifi==2026.7.22
 charset-normalizer==3.5.1
 click==8.5.0
-diffusers==0.40.0
+diffusers @ git+https://github.com/huggingface/diffusers@cc8644b447d8f11074d3df06d0ee0e3e7c91bf75
 fastapi==0.141.1
 filelock==3.32.3
 fsspec==2026.7.0

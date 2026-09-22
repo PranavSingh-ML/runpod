@@ -63,20 +63,36 @@ never delete). The pod is stateless; deleting it loses nothing.
 The Docker image on GHCR is public and contains only code. `apikey.txt` is gitignored — if present it
 is a leftover the user should delete.
 
+## Images
+
+- `:v3` (default since 2026-09-21): `Qwen/Qwen-Image-2.1` (`PIPELINE=qwen_image_21`, 7B DiT +
+  8B text encoder, native 2K, sampled without guidance at 40 steps) + `Qwen/Qwen-Image-2.1-PE-I2I`
+  prompt enhancer on the same GPU (`POST /rewrite`). Research license = personal use only.
+  diffusers is git-pinned (2.1 support is not in a PyPI release yet) — the lock is PROVISIONAL
+  until Phase 0 re-freezes it on a real pod.
+- `:v2`: `Qwen/Qwen-Image-Edit-2511` + Lightning LoRA, 1 MP, 8 steps. Same code path is still
+  in v3 (`PIPELINE=qwen_edit_plus`). Use `IMAGE=ghcr.io/pranavsingh-ml/imgedit:v2` if v3 misbehaves.
+
 ## Changing the pod image (rare)
 
-Edit `server/*`, commit, then `git tag v2 && git push origin main v2` → GitHub Actions builds
-`ghcr.io/pranavsingh-ml/imgedit:v2` (~10 min, free). Never tag `latest`. Then
-`IMAGE=ghcr.io/pranavsingh-ml/imgedit:v2 bash scripts/pod.sh up`. If you change Python deps,
+Edit `server/*`, commit, then `git tag v3 && git push origin main v3` → GitHub Actions builds
+`ghcr.io/pranavsingh-ml/imgedit:v3` (~10 min, free). Never tag `latest`. Then
+`IMAGE=ghcr.io/pranavsingh-ml/imgedit:v3 bash scripts/pod.sh up`. If you change Python deps,
 re-run Phase 0 (`README.md`) to re-freeze `server/requirements.lock.txt` — do not hand-edit the lock.
 
 ## Knobs
 
-- Output size: default = input aspect, long side clamped to 512–1024, multiples of 16. Raise
-  with `EXTRA_ENV='"MAX_SIDE":"1536"' bash scripts/pod.sh up`, or per-edit via the inspector.
-- Steps/guidance: 8 / 1.0 with the Lightning LoRA (default). `LORA_ENABLED=0` → 40 / 4.0, 5× slower.
-- Quant: `fp8_layerwise` everywhere (no extra libs). `nf4` for 24 GB cards. `fp8_torchao` is opt-in
-  and needs a torch-matched torchao added first — torchao 0.18 broke the build once (`NOTES.md`).
+- v3 resolution: generation budget `DEFAULT_RESOLUTION` (1024) up to `MAX_RESOLUTION` (2048),
+  source aspect, multiples of 32; per-edit via the inspector (`resolution` form field).
+- v2 output size: input aspect, long side clamped to 512–1024, multiples of 16 (`MAX_SIDE`).
+- Steps/guidance: v3 40 / 1.0 (no Lightning LoRA for 2.1 yet; guidance >1 doubles the time).
+  v2: 8 / 1.0 with Lightning; `LORA_ENABLED=0` → 40 / 4.0, 5× slower. The web app adopts the pod's
+  defaults whenever the pipeline changes.
+- Quant: v3 keeps the 7B DiT in bf16 and fp8-casts the text encoder + rewriter (~35 GB steady).
+  v2 `fp8_layerwise` everywhere. `nf4` for 24 GB cards. `fp8_torchao` is opt-in and needs a
+  torch-matched torchao added first — torchao 0.18 broke the build once (`NOTES.md`).
+- Rewriter: `PE_ENABLED=0` saves ~9.5 GB VRAM and a 19 GB download; the app then falls back to the
+  Claude text rewriter if an Anthropic key is set.
 
 ## Testing without a GPU
 

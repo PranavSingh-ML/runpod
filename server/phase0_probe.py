@@ -4,6 +4,7 @@ Runs in the exact image that ships, with the exact same Engine as production (pi
 so the pip freeze it writes is the truth. Produces, in the current directory:
   phase0_report.json     - versions, capability, quant path, VRAM, timings  -> copy into NOTES.md
   phase0_out.png         - the edited image (acceptance criterion)
+  phase0_out_3_rewritten.png - v3: the edit made from the PE-I2I rewritten prompt (creativity acceptance)
   requirements.lock.txt  - pip freeze, minus the packages the base image owns -> replace server/requirements.lock.txt
 
 Usage:  python phase0_probe.py [--image path.png] [--prompt "..."] [--steps 8]
@@ -29,13 +30,17 @@ def main() -> int:
     ap.add_argument("--prompt", default="make the sky a dramatic sunset, keep everything else unchanged")
     ap.add_argument("--steps", type=int, default=None)
     ap.add_argument("--size", default=None)
+    ap.add_argument("--resolution", type=int, default=None, help="qwen_image_21 only: 1024 draft / 2048 native 2K")
+    ap.add_argument("--casual", default="change my outfit to a stylish party outfit inspired by a beach fashion show",
+                    help="vague instruction fed to the PE-I2I rewriter (v3 acceptance for 'creativity')")
     args = ap.parse_args()
 
     import torch
     from PIL import Image, ImageDraw
 
     import config
-    from pipeline import Engine, parse_size, resolve_quant
+    from pipeline import Engine, parse_resolution, parse_size, resolve_quant
+    from rewriter import make_rewriter
 
     report: dict = {"date": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()), "python": platform.python_version(),
                     "torch": torch.__version__, "cuda": torch.version.cuda, "cudnn": torch.backends.cudnn.version()}
@@ -44,9 +49,12 @@ def main() -> int:
     report["capability"] = list(cap)
     report["vram_total_gb"] = round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1)
     report["quant"] = resolve_quant(cap)
+    report["pipeline"] = config.PIPELINE
     report["model"] = config.MODEL_ID
     report["model_revision"] = config.MODEL_REVISION
     report["lora"] = f"{config.LORA_REPO}/{config.LORA_FILE}" if config.LORA_ENABLED else None
+    report["rewriter"] = {"model": config.PE_MODEL_ID, "revision": config.PE_REVISION, "quant": config.PE_QUANT,
+                          "thinking": config.PE_THINKING} if config.PE_ENABLED else None
     for mod in ("diffusers", "transformers", "accelerate", "peft", "torchao", "bitsandbytes", "huggingface_hub"):
         try:
             report[mod] = __import__(mod).__version__
@@ -77,23 +85,50 @@ def main() -> int:
         d.rectangle([0, 500, 1024, 768], fill=(60, 140, 60))
         d.ellipse([400, 150, 620, 370], fill=(250, 220, 80))
         d.text((20, 20), "phase0 test image", fill=(255, 255, 255))
-    w, h = parse_size(args.size, img.width, img.height)
+    res = parse_resolution(args.resolution)
+    w, h = parse_size(args.size, img.width, img.height, res)
     steps = args.steps or config.DEFAULT_STEPS
 
     # ---- edit 1 (includes kernel warmup) ----
     t0 = time.time()
     out = eng.edit([img], args.prompt, config.DEFAULT_NEGATIVE, steps, config.DEFAULT_GUIDANCE, 42, w, h,
-                   lambda p: print(f"  progress {p:.2f}", flush=True))
+                   lambda p: print(f"  progress {p:.2f}", flush=True), resolution=res)
     report["edit1_s_incl_warmup"] = round(time.time() - t0, 2)
     out.save("phase0_out.png")
     # ---- edit 2 (steady state) ----
     t0 = time.time()
-    out2 = eng.edit([img], args.prompt, config.DEFAULT_NEGATIVE, steps, config.DEFAULT_GUIDANCE, 43, w, h, lambda p: None)
+    out2 = eng.edit([img], args.prompt, config.DEFAULT_NEGATIVE, steps, config.DEFAULT_GUIDANCE, 43, w, h, lambda p: None,
+                    resolution=res)
     report["edit2_s_steady"] = round(time.time() - t0, 2)
     out2.save("phase0_out_2.png")
     report["edit_steps"] = steps
     report["edit_size"] = f"{w}x{h}"
+    report["edit_resolution"] = res
     report["vram_peak_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+
+    # ---- rewriter (v3): load next to the editor, rewrite the casual instruction, edit with the result ----
+    rw = make_rewriter()
+    if rw is not None:
+        t0 = time.time()
+        rw.load()
+        report["rewriter_load_s"] = round(time.time() - t0, 1)
+        report["vram_idle_with_rewriter_gb"] = eng.vram_used_gb()
+        torch.cuda.reset_peak_memory_stats()
+        t0 = time.time()
+        rr = rw.rewrite([img], args.casual)
+        report["rewrite1_s_incl_warmup"] = round(time.time() - t0, 2)
+        t0 = time.time()
+        rr = rw.rewrite([img], args.casual)
+        report["rewrite2_s_steady"] = round(time.time() - t0, 2)
+        report["rewrite_input"] = args.casual
+        report["rewrite_output"] = rr["rewritten_prompt"]
+        print("REWRITE:", rr["rewritten_prompt"], flush=True)
+        t0 = time.time()
+        out3 = eng.edit([img], rr["rewritten_prompt"], config.DEFAULT_NEGATIVE, steps, config.DEFAULT_GUIDANCE, 44, w, h,
+                        lambda p: None, resolution=res)
+        report["edit3_rewritten_s"] = round(time.time() - t0, 2)
+        out3.save("phase0_out_3_rewritten.png")
+        report["vram_peak_with_rewriter_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
     print(json.dumps(report, indent=2), flush=True)
 
     with open("phase0_report.json", "w", encoding="utf-8") as f:
